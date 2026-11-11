@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowRight,
   Bell,
@@ -8,15 +8,23 @@ import {
   ChevronRight,
   Clock3,
   Globe,
+  Heart,
   Loader2,
   Menu,
   Monitor,
+  Moon,
   Play,
+  Plus,
+  RefreshCw,
   Search,
+  SlidersHorizontal,
   Smartphone,
+  Sparkles,
+  Sun,
   Trophy,
   Tv,
   User as UserIcon,
+  Users,
   X,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -39,6 +47,24 @@ import {
   type SearchResults,
 } from '@/lib/sportivra/data'
 import {
+  GUEST_PREFS_STORAGE_KEY,
+  clearGuestPreferences,
+  extractPreferencesFromProfile,
+  extractTeamsFromMatches,
+  mergePreferences,
+  persistUserPreferences,
+  prioritiseBySports,
+  readGuestPreferences,
+  writeGuestPreferences,
+  type UserPreferences,
+} from '@/lib/sportivra/personalisation'
+import {
+  THEME_STORAGE_KEY,
+  applyTheme,
+  readCurrentTheme,
+  type ThemeMode,
+} from '@/lib/sportivra/theme'
+import {
   ArticleReaderModal,
   AuthAccountModal,
   CatalogArchiveModal,
@@ -48,13 +74,14 @@ import {
 } from '@/components/sportivra-modals'
 
 const navItems = [
-  'Home',
-  'Live',
-  'Sports',
-  'Schedule',
-  'Scores',
-  'Highlights',
-  'News',
+  { label: 'Home', href: '#top', id: 'top' },
+  { label: 'Live', href: '#live', id: 'live' },
+  { label: 'Sports', href: '#sports', id: 'sports' },
+  { label: 'My Teams', href: '#my-teams', id: 'my-teams' },
+  { label: 'Schedule', href: '#schedule', id: 'schedule' },
+  { label: 'Scores', href: '#scores', id: 'scores' },
+  { label: 'Highlights', href: '#highlights', id: 'highlights' },
+  { label: 'News', href: '#news', id: 'news' },
 ] as const
 
 const sportSubtitles: Record<string, string> = {
@@ -152,7 +179,7 @@ function Brand() {
       aria-label="SPORTIVRA home"
     >
       <span className="brand-mark">S</span>
-      <span className="text-[18px] font-black tracking-[0.18em] text-white">
+      <span className="text-[18px] font-black tracking-[0.18em] text-[#0b1220] dark:text-white">
         SPORTIVRA
       </span>
     </a>
@@ -175,11 +202,11 @@ function SectionHeading({
   return (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.26em] text-[#39ff14]">
+        <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.26em] text-[#0f7a06] dark:text-[#39ff14]">
           {eyebrow}
         </p>
         <div className="flex flex-wrap items-center gap-3">
-          <h2 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
+          <h2 className="text-2xl font-bold tracking-tight text-[#0b1220] sm:text-3xl dark:text-white">
             {title}
           </h2>
           {badge}
@@ -189,7 +216,7 @@ function SectionHeading({
         <button
           type="button"
           onClick={onAction}
-          className="inline-flex min-h-10 items-center gap-1 text-xs font-semibold text-white/65 transition hover:text-[#39ff14] sm:text-sm"
+          className="inline-flex min-h-10 items-center gap-1 text-xs font-semibold text-slate-600 transition hover:text-[#0f7a06] sm:text-sm dark:text-white/65 dark:hover:text-[#39ff14]"
         >
           {action}
           <ChevronRight size={16} />
@@ -203,29 +230,35 @@ function MatchCard({
   match,
   isReminded,
   isSaving,
+  favoriteTeams,
   serverDateUtc,
   onToggleReminder,
+  onToggleFollowTeam,
   onOpenMatch,
 }: {
   match: MatchRow
   isReminded: boolean
   isSaving: boolean
+  favoriteTeams: Set<string>
   serverDateUtc: string
   onToggleReminder: (matchId: string) => void
+  onToggleFollowTeam: (teamName: string) => void
   onOpenMatch: (match: MatchRow) => void
 }) {
   const dayLabel = formatMatchDayLabel(match.kickoff_at, serverDateUtc)
   const timeLabel = formatUtcTime(match.kickoff_at)
+  const homeFollowed = favoriteTeams.has(match.home_team)
+  const awayFollowed = favoriteTeams.has(match.away_team)
 
   return (
     <article className="match-card group flex flex-col justify-between">
       <div>
-        <div className="mb-4 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-white/50">
+        <div className="mb-4 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-white/50">
           <span className="flex min-w-0 items-center gap-1.5 truncate">
             <span className="text-sm">{match.sport?.icon ?? '⚽'}</span>
             <span className="truncate">{match.league}</span>
           </span>
-          <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[10px] font-bold text-[#39ff14]">
+          <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-[#0f7a06] dark:border-white/10 dark:bg-white/5 dark:text-[#39ff14]">
             {dayLabel}
           </span>
         </div>
@@ -236,32 +269,62 @@ function MatchCard({
           className="grid w-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 py-3 text-center"
         >
           <div className="flex flex-col items-center gap-2">
-            <span className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/8 text-sm font-black text-white transition group-hover:border-[#39ff14]/45">
+            <span className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-slate-100 text-sm font-black text-[#0b1220] transition group-hover:border-[#0f7a06]/45 dark:border-white/15 dark:bg-white/8 dark:text-white dark:group-hover:border-[#39ff14]/45">
               {match.home_team[0]}
             </span>
-            <span className="line-clamp-2 text-xs font-bold leading-snug text-white/95 sm:text-sm">
+            <span className="line-clamp-2 text-xs font-bold leading-snug text-[#0b1220] sm:text-sm dark:text-white/95">
               {match.home_team}
             </span>
           </div>
 
-          <span className="rounded-md bg-white/5 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-white/45">
+          <span className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:bg-white/5 dark:text-white/45">
             vs
           </span>
 
           <div className="flex flex-col items-center gap-2">
-            <span className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/8 text-sm font-black text-white transition group-hover:border-[#39ff14]/45">
+            <span className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-slate-100 text-sm font-black text-[#0b1220] transition group-hover:border-[#0f7a06]/45 dark:border-white/15 dark:bg-white/8 dark:text-white dark:group-hover:border-[#39ff14]/45">
               {match.away_team[0]}
             </span>
-            <span className="line-clamp-2 text-xs font-bold leading-snug text-white/95 sm:text-sm">
+            <span className="line-clamp-2 text-xs font-bold leading-snug text-[#0b1220] sm:text-sm dark:text-white/95">
               {match.away_team}
             </span>
           </div>
         </button>
+
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          {[
+            { name: match.home_team, followed: homeFollowed },
+            { name: match.away_team, followed: awayFollowed },
+          ].map(({ name, followed }) => (
+            <button
+              key={name}
+              type="button"
+              title={followed ? `Unfollow ${name}` : `Follow ${name}`}
+              onClick={() => onToggleFollowTeam(name)}
+              aria-pressed={followed}
+              aria-label={followed ? `Unfollow ${name}` : `Follow ${name}`}
+              className={`flex min-h-8 items-center justify-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-bold transition ${
+                followed
+                  ? 'border-[#0f7a06] bg-[#39ff14] text-[#0b1220] dark:border-[#39ff14]'
+                  : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-[#0f7a06]/50 hover:text-[#0b1220] dark:border-white/12 dark:bg-white/5 dark:text-white/75 dark:hover:border-[#39ff14]/50 dark:hover:text-white'
+              }`}
+            >
+              {followed ? (
+                <Check size={11} className="shrink-0" />
+              ) : (
+                <Plus size={11} className="shrink-0" />
+              )}
+              <span className="truncate">
+                {followed ? 'Following' : 'Follow'}
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="mt-4 space-y-3 border-t border-white/8 pt-4">
-        <div className="flex items-center justify-center gap-1.5 text-xs text-white/55">
-          <Clock3 size={13} className="text-[#39ff14]" />
+      <div className="mt-4 space-y-3 border-t border-slate-200 pt-4 dark:border-white/8">
+        <div className="flex items-center justify-center gap-1.5 text-xs text-slate-600 dark:text-white/55">
+          <Clock3 size={13} className="text-[#0f7a06] dark:text-[#39ff14]" />
           <span>
             {dayLabel} • {timeLabel} UTC
           </span>
@@ -273,8 +336,8 @@ function MatchCard({
           onClick={() => onToggleReminder(match.id)}
           className={`flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border text-xs font-bold transition ${
             isReminded
-              ? 'border-[#39ff14] bg-[#39ff14] text-[#0b1220]'
-              : 'border-[#39ff14]/40 bg-[#39ff14]/10 text-[#39ff14] hover:border-[#39ff14] hover:bg-[#39ff14]/20'
+              ? 'border-[#0f7a06] bg-[#39ff14] text-[#0b1220] dark:border-[#39ff14]'
+              : 'border-[#0f7a06]/35 bg-[#39ff14]/15 text-[#0b1220] hover:border-[#0f7a06] hover:bg-[#39ff14]/30 dark:border-[#39ff14]/40 dark:bg-[#39ff14]/10 dark:text-[#39ff14] dark:hover:border-[#39ff14] dark:hover:bg-[#39ff14]/20'
           } disabled:opacity-60`}
           aria-label={
             isReminded
@@ -304,6 +367,7 @@ export function SportivraApp({
 }: {
   initialData: InitialCatalogData
 }) {
+  const [theme, setTheme] = useState<ThemeMode>('dark')
   const [sports, setSports] = useState<SportRow[]>(initialData.sports)
   const [matches, setMatches] = useState<MatchRow[]>(initialData.matches)
   const [highlights, setHighlights] = useState<HighlightRow[]>(
@@ -318,11 +382,35 @@ export function SportivraApp({
   const [catalogLoading, setCatalogLoading] = useState<boolean>(
     !initialData.serverHydrated,
   )
+  const [catalogError, setCatalogError] = useState<string | null>(
+    initialData.serverHydrated ? initialData.loadError : null,
+  )
+  const [activeNavId, setActiveNavId] = useState<string>('top')
+
+  const initialAccountPrefs = extractPreferencesFromProfile(
+    initialData.user ? initialData.profile : null,
+  )
 
   const [user, setUser] = useState<{ id: string; email: string | null } | null>(
     initialData.user,
   )
   const [profile, setProfile] = useState<ProfileRow | null>(initialData.profile)
+  const [favoriteSportIds, setFavoriteSportIds] = useState<string[]>(
+    initialAccountPrefs.favoriteSportIds,
+  )
+  const [favoriteTeams, setFavoriteTeams] = useState<string[]>(
+    initialAccountPrefs.favoriteTeams,
+  )
+  const prefsRef = useRef<UserPreferences>(initialAccountPrefs)
+  const prefsSaveSeqRef = useRef(0)
+  const lastSyncedUserIdRef = useRef<string | null>(null)
+  const syncingGuestUserIdRef = useRef<string | null>(null)
+  const guestHydratedRef = useRef(false)
+
+  const [teamBrowserOpen, setTeamBrowserOpen] = useState(false)
+  const [teamSearchQuery, setTeamSearchQuery] = useState('')
+  const [teamSportFilter, setTeamSportFilter] = useState<string>('all')
+
   const [remindedIds, setRemindedIds] = useState<Set<string>>(
     () => new Set(initialData.reminderMatchIds),
   )
@@ -335,6 +423,7 @@ export function SportivraApp({
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchLoading, setSearchLoading] = useState(false)
+  const [searchError, setSearchError] = useState<string | null>(null)
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null)
 
   const [selectedSportSlug, setSelectedSportSlug] = useState<string | null>(null)
@@ -362,6 +451,31 @@ export function SportivraApp({
     message: string
     tone: 'success' | 'error'
   } | null>(null)
+
+  // Synchronise React theme state with the pre-paint <head> script & cross-tab storage changes
+  useEffect(() => {
+    const initial = readCurrentTheme()
+    setTheme(initial)
+    applyTheme(initial)
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === THEME_STORAGE_KEY) {
+        const next: ThemeMode = e.newValue === 'light' ? 'light' : 'dark'
+        setTheme(next)
+        applyTheme(next)
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => {
+      const next: ThemeMode = prev === 'dark' ? 'light' : 'dark'
+      applyTheme(next)
+      return next
+    })
+  }, [])
 
   const showToast = useCallback(
     (message: string, tone: 'success' | 'error' = 'success') => {
@@ -396,6 +510,160 @@ export function SportivraApp({
     }
   }, [showToast])
 
+  const validSportIds = useMemo(
+    () => new Set(sports.map((s) => s.id)),
+    [sports],
+  )
+
+  const teamCatalog = useMemo(
+    () => extractTeamsFromMatches(matches, sports),
+    [matches, sports],
+  )
+
+  const validTeamNames = useMemo(
+    () => new Set(teamCatalog.map((t) => t.name)),
+    [teamCatalog],
+  )
+
+  const applyPreferencesState = useCallback((next: UserPreferences) => {
+    prefsRef.current = next
+    setFavoriteSportIds(next.favoriteSportIds)
+    setFavoriteTeams(next.favoriteTeams)
+  }, [])
+
+  const syncAccountPreferences = useCallback(
+    async (
+      authUserId: string,
+      authEmail: string | null,
+      serverProfile: ProfileRow | null,
+    ) => {
+      const sportSet = validSportIds.size > 0 ? validSportIds : undefined
+      const teamSet = validTeamNames.size > 0 ? validTeamNames : undefined
+
+      const serverPrefs = extractPreferencesFromProfile(
+        serverProfile,
+        sportSet,
+        teamSet,
+      )
+      const guestPrefs = readGuestPreferences(sportSet, teamSet)
+      const hasGuestPrefs =
+        guestPrefs.favoriteSportIds.length > 0 ||
+        guestPrefs.favoriteTeams.length > 0
+
+      if (!hasGuestPrefs) {
+        applyPreferencesState(serverPrefs)
+        return
+      }
+
+      if (syncingGuestUserIdRef.current === authUserId) {
+        return
+      }
+      syncingGuestUserIdRef.current = authUserId
+
+      try {
+        const merged = mergePreferences(serverPrefs, guestPrefs)
+        const supabase = createClient()
+        const { profile: savedProfile, error } = await persistUserPreferences(
+          supabase,
+          authUserId,
+          authEmail,
+          merged,
+        )
+
+        if (error) {
+          applyPreferencesState(serverPrefs)
+          showToast(
+            `Could not sync local preferences to your profile: ${error}`,
+            'error',
+          )
+          return
+        }
+
+        clearGuestPreferences()
+        if (savedProfile) {
+          setProfile(savedProfile)
+        }
+        applyPreferencesState(merged)
+        showToast('Saved your personalised teams & sports to your account.')
+      } finally {
+        syncingGuestUserIdRef.current = null
+      }
+    },
+    [applyPreferencesState, showToast, validSportIds, validTeamNames],
+  )
+
+  // Hydrate guest preferences locally when signed out; sync any local picks once per signed-in user
+  useEffect(() => {
+    if (catalogLoading) return
+
+    if (user) {
+      guestHydratedRef.current = false
+      if (lastSyncedUserIdRef.current !== user.id) {
+        lastSyncedUserIdRef.current = user.id
+        void syncAccountPreferences(user.id, user.email, profile)
+      }
+      return
+    }
+
+    lastSyncedUserIdRef.current = null
+    if (!guestHydratedRef.current) {
+      guestHydratedRef.current = true
+      const guest = readGuestPreferences(
+        validSportIds.size > 0 ? validSportIds : undefined,
+        validTeamNames.size > 0 ? validTeamNames : undefined,
+      )
+      applyPreferencesState(guest)
+    }
+  }, [
+    applyPreferencesState,
+    catalogLoading,
+    profile,
+    syncAccountPreferences,
+    user,
+    validSportIds,
+    validTeamNames,
+  ])
+
+  // Cross-tab guest preference sync
+  useEffect(() => {
+    if (user) return
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === GUEST_PREFS_STORAGE_KEY) {
+        const next = readGuestPreferences(
+          validSportIds.size > 0 ? validSportIds : undefined,
+          validTeamNames.size > 0 ? validTeamNames : undefined,
+        )
+        applyPreferencesState(next)
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [applyPreferencesState, user, validSportIds, validTeamNames])
+
+  const retryCatalogLoad = useCallback(async () => {
+    setCatalogLoading(true)
+    setCatalogError(null)
+    const supabase = createClient()
+    const fresh = await fetchInitialCatalog(supabase)
+
+    setSports(fresh.sports)
+    setMatches(fresh.matches)
+    setHighlights(fresh.highlights)
+    setNewsArticles(fresh.newsArticles)
+    setUser(fresh.user)
+    setProfile(fresh.profile)
+    setRemindedIds(new Set(fresh.reminderMatchIds))
+    setServerDateUtc(fresh.serverDateUtc)
+    setCatalogLoading(false)
+
+    if (fresh.loadError) {
+      setCatalogError(fresh.loadError)
+      showToast(`Could not load SPORTIVRA data: ${fresh.loadError}`, 'error')
+    } else {
+      showToast('SPORTIVRA live catalog updated.')
+    }
+  }, [showToast])
+
   // If SSR ran in an environment where server-side egress was restricted,
   // hydrate directly from Supabase in the browser without fallback mock data.
   useEffect(() => {
@@ -404,6 +672,7 @@ export function SportivraApp({
 
     async function hydrateFromBrowser() {
       setCatalogLoading(true)
+      setCatalogError(null)
       const supabase = createClient()
       const fresh = await fetchInitialCatalog(supabase)
       if (cancelled) return
@@ -419,6 +688,7 @@ export function SportivraApp({
       setCatalogLoading(false)
 
       if (fresh.loadError) {
+        setCatalogError(fresh.loadError)
         showToast(`Could not load SPORTIVRA data: ${fresh.loadError}`, 'error')
       }
     }
@@ -428,6 +698,49 @@ export function SportivraApp({
       cancelled = true
     }
   }, [initialData.serverHydrated, showToast])
+
+  // Close search overlay & mobile navigation on Escape key
+  useEffect(() => {
+    if (!searchOpen && !mobileNav) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSearchOpen(false)
+        setMobileNav(false)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [mobileNav, searchOpen])
+
+  // Keep desktop & mobile navigation highlight synced to scroll position
+  useEffect(() => {
+    const trackedIds = [
+      'news',
+      'highlights',
+      'schedule',
+      'my-teams',
+      'sports',
+      'live',
+    ]
+    const onScroll = () => {
+      const offset = window.scrollY + 130
+      if (window.scrollY < 260) {
+        setActiveNavId('top')
+        return
+      }
+      for (const id of trackedIds) {
+        const el = document.getElementById(id)
+        if (el && offset >= el.offsetTop) {
+          setActiveNavId(id)
+          return
+        }
+      }
+      setActiveNavId('top')
+    }
+
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
 
   const loadUserAccountState = useCallback(async () => {
     const supabase = createClient()
@@ -439,6 +752,12 @@ export function SportivraApp({
       setUser(null)
       setProfile(null)
       setRemindedIds(new Set())
+      applyPreferencesState(
+        readGuestPreferences(
+          validSportIds.size > 0 ? validSportIds : undefined,
+          validTeamNames.size > 0 ? validTeamNames : undefined,
+        ),
+      )
       return null
     }
 
@@ -456,14 +775,26 @@ export function SportivraApp({
         .eq('user_id', authUser.id),
     ])
 
-    setProfile(profileRes.data ?? null)
+    const serverProfile = profileRes.data ?? null
+    setProfile(serverProfile)
     const nextReminders = new Set(
       (remindersRes.data ?? []).map((r) => r.match_id),
     )
     setRemindedIds(nextReminders)
 
+    await syncAccountPreferences(
+      authUser.id,
+      authUser.email ?? null,
+      serverProfile,
+    )
+
     return authUser.id
-  }, [])
+  }, [
+    applyPreferencesState,
+    syncAccountPreferences,
+    validSportIds,
+    validTeamNames,
+  ])
 
   // Subscribe to auth state changes & live match updates via Supabase Realtime
   useEffect(() => {
@@ -484,6 +815,9 @@ export function SportivraApp({
         setUser(null)
         setProfile(null)
         setRemindedIds(new Set())
+        syncingGuestUserIdRef.current = null
+        lastSyncedUserIdRef.current = null
+        applyPreferencesState({ favoriteSportIds: [], favoriteTeams: [] })
       }
     })
 
@@ -508,17 +842,40 @@ export function SportivraApp({
   }, [loadUserAccountState])
 
   // Debounced live Supabase search
+  const runSearch = useCallback(async (queryText: string) => {
+    const trimmed = queryText.trim()
+    if (!trimmed) {
+      setSearchResults(null)
+      setSearchError(null)
+      setSearchLoading(false)
+      return
+    }
+    setSearchLoading(true)
+    setSearchError(null)
+    try {
+      const supabase = createClient()
+      const results = await searchCatalog(supabase, trimmed)
+      setSearchResults(results)
+    } catch {
+      setSearchError('Search could not reach SPORTIVRA right now.')
+    } finally {
+      setSearchLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (!searchOpen) return
     const trimmed = searchQuery.trim()
     if (!trimmed) {
       setSearchResults(null)
+      setSearchError(null)
       setSearchLoading(false)
       return
     }
 
     let cancelled = false
     setSearchLoading(true)
+    setSearchError(null)
     const timer = setTimeout(async () => {
       try {
         const supabase = createClient()
@@ -528,7 +885,7 @@ export function SportivraApp({
         }
       } catch {
         if (!cancelled) {
-          showToast('Search query failed. Please try again.', 'error')
+          setSearchError('Search could not reach SPORTIVRA right now.')
         }
       } finally {
         if (!cancelled) {
@@ -541,7 +898,7 @@ export function SportivraApp({
       cancelled = true
       clearTimeout(timer)
     }
-  }, [searchOpen, searchQuery, showToast])
+  }, [searchOpen, searchQuery])
 
   const toggleReminder = useCallback(
     async (matchId: string) => {
@@ -642,20 +999,136 @@ export function SportivraApp({
     [showToast, user],
   )
 
+  const updatePreferences = useCallback(
+    async (
+      updater: (prev: UserPreferences) => UserPreferences,
+      feedbackMessage?: string,
+    ) => {
+      const next = updater(prefsRef.current)
+      applyPreferencesState(next)
+
+      if (!user) {
+        writeGuestPreferences(next)
+        if (feedbackMessage) {
+          showToast(feedbackMessage)
+        }
+        return
+      }
+
+      const seq = ++prefsSaveSeqRef.current
+      const supabase = createClient()
+      const { profile: savedProfile, error } = await persistUserPreferences(
+        supabase,
+        user.id,
+        user.email,
+        next,
+      )
+
+      if (seq !== prefsSaveSeqRef.current) return
+
+      if (error) {
+        showToast(`Could not save preferences: ${error}`, 'error')
+        await loadUserAccountState()
+        return
+      }
+
+      if (savedProfile) {
+        setProfile(savedProfile)
+      }
+      if (feedbackMessage) {
+        showToast(feedbackMessage)
+      }
+    },
+    [applyPreferencesState, loadUserAccountState, showToast, user],
+  )
+
+  const toggleFavoriteSport = useCallback(
+    (sportId: string) => {
+      const sportName =
+        sports.find((s) => s.id === sportId)?.name ?? 'Sport'
+      const wasSelected = prefsRef.current.favoriteSportIds.includes(sportId)
+
+      void updatePreferences(
+        (prev) => ({
+          ...prev,
+          favoriteSportIds: wasSelected
+            ? prev.favoriteSportIds.filter((id) => id !== sportId)
+            : [...prev.favoriteSportIds, sportId],
+        }),
+        wasSelected
+          ? `Removed ${sportName} from your favourite sports.`
+          : `Added ${sportName} to your favourite sports.`,
+      )
+    },
+    [sports, updatePreferences],
+  )
+
+  const clearFavoriteSports = useCallback(() => {
+    if (prefsRef.current.favoriteSportIds.length === 0) return
+    void updatePreferences(
+      (prev) => ({ ...prev, favoriteSportIds: [] }),
+      'Cleared favourite sports selection.',
+    )
+  }, [updatePreferences])
+
+  const toggleFollowTeam = useCallback(
+    (teamName: string) => {
+      const cleanName = teamName.trim()
+      if (!cleanName) return
+      const wasFollowing = prefsRef.current.favoriteTeams.includes(cleanName)
+
+      void updatePreferences(
+        (prev) => ({
+          ...prev,
+          favoriteTeams: wasFollowing
+            ? prev.favoriteTeams.filter((t) => t !== cleanName)
+            : [...prev.favoriteTeams, cleanName],
+        }),
+        wasFollowing
+          ? `Unfollowed ${cleanName}.`
+          : `Following ${cleanName}.`,
+      )
+    },
+    [updatePreferences],
+  )
+
   const selectedSport = useMemo(
     () => sports.find((s) => s.slug === selectedSportSlug) ?? null,
     [sports, selectedSportSlug],
   )
 
+  const favoriteSportIdSet = useMemo(
+    () => new Set(favoriteSportIds),
+    [favoriteSportIds],
+  )
+
+  const favoriteTeamSet = useMemo(
+    () => new Set(favoriteTeams),
+    [favoriteTeams],
+  )
+
+  const favoriteSportsList = useMemo(
+    () =>
+      favoriteSportIds
+        .map((id) => sports.find((s) => s.id === id))
+        .filter((s): s is SportRow => Boolean(s)),
+    [favoriteSportIds, sports],
+  )
+
+  const prioritisedMatches = useMemo(
+    () => prioritiseBySports(matches, favoriteSportIds),
+    [matches, favoriteSportIds],
+  )
+
   const globalLiveMatches = useMemo(
-    () => matches.filter((m) => m.status === 'live'),
-    [matches],
+    () => prioritisedMatches.filter((m) => m.status === 'live'),
+    [prioritisedMatches],
   )
 
   const matchesBySport = useMemo(() => {
-    if (!selectedSport) return matches
-    return matches.filter((m) => m.sport_id === selectedSport.id)
-  }, [matches, selectedSport])
+    if (!selectedSport) return prioritisedMatches
+    return prioritisedMatches.filter((m) => m.sport_id === selectedSport.id)
+  }, [prioritisedMatches, selectedSport])
 
   const liveMatches = useMemo(
     () => matchesBySport.filter((m) => m.status === 'live'),
@@ -675,9 +1148,11 @@ export function SportivraApp({
   )
 
   const filteredHighlights = useMemo(() => {
-    if (!selectedSport) return highlights
+    if (!selectedSport) {
+      return prioritiseBySports(highlights, favoriteSportIds)
+    }
     return highlights.filter((h) => h.sport_id === selectedSport.id)
-  }, [highlights, selectedSport])
+  }, [highlights, selectedSport, favoriteSportIds])
 
   const showcaseHighlights = useMemo(
     () => filteredHighlights.slice(0, 2),
@@ -685,11 +1160,64 @@ export function SportivraApp({
   )
 
   const filteredNews = useMemo(() => {
-    if (!selectedSport) return newsArticles.slice(0, 3)
+    if (!selectedSport) {
+      return prioritiseBySports(newsArticles, favoriteSportIds).slice(0, 3)
+    }
     return newsArticles
       .filter((a) => a.sport_id === selectedSport.id)
       .slice(0, 3)
-  }, [newsArticles, selectedSport])
+  }, [newsArticles, selectedSport, favoriteSportIds])
+
+  const allArchiveNews = useMemo(() => {
+    if (selectedSport) {
+      return newsArticles.filter((a) => a.sport_id === selectedSport.id)
+    }
+    return prioritiseBySports(newsArticles, favoriteSportIds)
+  }, [newsArticles, selectedSport, favoriteSportIds])
+
+  const followedTeamCatalog = useMemo(() => {
+    const map = new Map(teamCatalog.map((t) => [t.name, t]))
+    return favoriteTeams
+      .map((name) => map.get(name))
+      .filter((t): t is NonNullable<typeof t> => Boolean(t))
+  }, [favoriteTeams, teamCatalog])
+
+  const followedTeamUpcomingMatches = useMemo(
+    () =>
+      prioritisedMatches.filter(
+        (m) =>
+          m.status === 'upcoming' &&
+          (favoriteTeamSet.has(m.home_team) ||
+            favoriteTeamSet.has(m.away_team)),
+      ),
+    [favoriteTeamSet, prioritisedMatches],
+  )
+
+  const followedTeamResultMatches = useMemo(
+    () =>
+      prioritisedMatches.filter(
+        (m) =>
+          (m.status === 'live' || m.status === 'finished') &&
+          (favoriteTeamSet.has(m.home_team) ||
+            favoriteTeamSet.has(m.away_team)),
+      ),
+    [favoriteTeamSet, prioritisedMatches],
+  )
+
+  const filteredDiscoveryTeams = useMemo(() => {
+    const q = teamSearchQuery.trim().toLowerCase()
+    return teamCatalog.filter((team) => {
+      if (teamSportFilter !== 'all' && team.sportId !== teamSportFilter) {
+        return false
+      }
+      if (!q) return true
+      return (
+        team.name.toLowerCase().includes(q) ||
+        team.sportName.toLowerCase().includes(q) ||
+        team.league.toLowerCase().includes(q)
+      )
+    })
+  }, [teamCatalog, teamSearchQuery, teamSportFilter])
 
   const remindedMatches = useMemo(
     () => matches.filter((m) => remindedIds.has(m.id)),
@@ -721,65 +1249,129 @@ export function SportivraApp({
     e: React.MouseEvent<HTMLAnchorElement>,
     item: (typeof navItems)[number],
   ) => {
-    if (item === 'Scores') {
+    if (item.id === 'scores') {
       e.preventDefault()
       void handleOpenMatchCenter('finished')
+    } else {
+      setActiveNavId(item.id)
     }
     setMobileNav(false)
   }
 
   return (
-    <main id="top" className="min-h-screen overflow-x-clip bg-[#0b1220] text-white">
-      <header className="sticky top-0 z-30 border-b border-white/10 bg-[#0b1220]/85 backdrop-blur-xl">
-        <div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-5 lg:px-8">
+    <main
+      id="top"
+      className="min-h-screen overflow-x-clip bg-[#f5f7fa] text-[#0b1220] transition-colors duration-200 dark:bg-[#0b1220] dark:text-white"
+    >
+      <header className="sticky top-0 z-30 border-b border-slate-200/90 bg-white/90 backdrop-blur-xl transition-colors duration-200 dark:border-white/10 dark:bg-[#0b1220]/85">
+        <div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between gap-3 px-4 sm:px-5 lg:px-8">
           <Brand />
 
-          <nav className="hidden items-center gap-7 lg:flex" aria-label="Primary navigation">
-            {navItems.map((item, i) => (
-              <a
-                key={item}
-                href={i === 0 ? '#top' : `#${item.toLowerCase()}`}
-                onClick={(e) => handleNavClick(e, item)}
-                className={`inline-flex items-center gap-1.5 text-[13px] font-semibold transition hover:text-[#39ff14] ${
-                  i === 0 ? 'text-[#39ff14]' : 'text-white/70'
-                }`}
-              >
-                {item}
-                {item === 'Live' && globalLiveMatches.length > 0 && (
-                  <span
-                    className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#39ff14]"
-                    aria-hidden="true"
-                  />
-                )}
-              </a>
-            ))}
+          <nav
+            className="hidden items-center gap-5 xl:gap-7 lg:flex"
+            aria-label="Primary navigation"
+          >
+            {navItems.map((item) => {
+              const isActive = activeNavId === item.id
+              return (
+                <a
+                  key={item.id}
+                  href={item.href}
+                  onClick={(e) => handleNavClick(e, item)}
+                  className={`inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] font-semibold transition hover:text-[#0f7a06] dark:hover:text-[#39ff14] ${
+                    isActive
+                      ? 'text-[#0f7a06] dark:text-[#39ff14]'
+                      : 'text-slate-600 dark:text-white/70'
+                  }`}
+                >
+                  {item.label}
+                  {item.id === 'live' && globalLiveMatches.length > 0 && (
+                    <span
+                      className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#0f7a06] dark:bg-[#39ff14]"
+                      aria-hidden="true"
+                    />
+                  )}
+                  {item.id === 'my-teams' && favoriteTeams.length > 0 && (
+                    <span className="rounded-full bg-[#39ff14]/25 px-1.5 py-0.5 text-[10px] font-black text-[#0f7a06] dark:bg-[#39ff14]/20 dark:text-[#39ff14]">
+                      {favoriteTeams.length}
+                    </span>
+                  )}
+                </a>
+              )
+            })}
           </nav>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             <button
               type="button"
               onClick={() => setSearchOpen((prev) => !prev)}
-              className="flex h-11 w-11 items-center justify-center rounded-full text-white/75 transition hover:bg-white/10 hover:text-white"
+              aria-expanded={searchOpen}
+              className={`flex h-10 w-10 items-center justify-center rounded-full transition sm:h-11 sm:w-11 ${
+                searchOpen
+                  ? 'bg-[#39ff14]/20 text-[#0f7a06] dark:text-[#39ff14]'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-[#0b1220] dark:text-white/75 dark:hover:bg-white/10 dark:hover:text-white'
+              }`}
               aria-label="Search SPORTIVRA"
             >
               <Search size={19} />
             </button>
+
+            <button
+              type="button"
+              onClick={toggleTheme}
+              aria-label={
+                theme === 'dark'
+                  ? 'Switch to light mode'
+                  : 'Switch to dark mode'
+              }
+              title={
+                theme === 'dark'
+                  ? 'Switch to light mode'
+                  : 'Switch to dark mode'
+              }
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-slate-100/80 text-slate-700 transition hover:border-[#0f7a06]/50 hover:bg-slate-200/80 hover:text-[#0b1220] sm:h-11 sm:w-11 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:border-[#39ff14]/45 dark:hover:bg-white/10 dark:hover:text-[#39ff14]"
+            >
+              <Sun size={18} className="hidden dark:block" />
+              <Moon size={18} className="block dark:hidden" />
+            </button>
+
             {user ? (
-              <button
-                type="button"
-                onClick={() => setAuthModalMode('account')}
-                className="hidden min-h-11 items-center gap-2 rounded-full border border-[#39ff14]/40 bg-[#39ff14]/10 px-4 text-sm font-semibold text-white transition hover:bg-[#39ff14]/20 sm:flex"
-              >
-                <UserIcon size={15} className="text-[#39ff14]" />
-                <span className="max-w-[140px] truncate">
-                  {profile?.full_name || user.email || 'Account'}
-                </span>
-                {remindedIds.size > 0 && (
-                  <span className="rounded-full bg-[#39ff14] px-1.5 py-0.5 text-[10px] font-black text-[#0b1220]">
-                    {remindedIds.size}
+              <>
+                <button
+                  type="button"
+                  onClick={() => setAuthModalMode('account')}
+                  aria-label="Open account"
+                  className="relative flex h-10 w-10 items-center justify-center rounded-full border border-[#0f7a06]/40 bg-[#39ff14]/20 text-[#0b1220] sm:hidden dark:border-[#39ff14]/40 dark:bg-[#39ff14]/15 dark:text-white"
+                >
+                  <UserIcon
+                    size={16}
+                    className="text-[#0f7a06] dark:text-[#39ff14]"
+                  />
+                  {remindedIds.size > 0 && (
+                    <span className="absolute -right-1 -top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[#39ff14] px-1 text-[9px] font-black text-[#0b1220]">
+                      {remindedIds.size}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAuthModalMode('account')}
+                  className="hidden min-h-11 items-center gap-2 rounded-full border border-[#0f7a06]/40 bg-[#39ff14]/20 px-4 text-sm font-semibold text-[#0b1220] transition hover:bg-[#39ff14]/30 sm:flex dark:border-[#39ff14]/40 dark:bg-[#39ff14]/10 dark:text-white dark:hover:bg-[#39ff14]/20"
+                >
+                  <UserIcon
+                    size={15}
+                    className="text-[#0f7a06] dark:text-[#39ff14]"
+                  />
+                  <span className="max-w-[140px] truncate">
+                    {profile?.full_name || user.email || 'Account'}
                   </span>
-                )}
-              </button>
+                  {remindedIds.size > 0 && (
+                    <span className="rounded-full bg-[#39ff14] px-1.5 py-0.5 text-[10px] font-black text-[#0b1220]">
+                      {remindedIds.size}
+                    </span>
+                  )}
+                </button>
+              </>
             ) : (
               <>
                 <button
@@ -788,7 +1380,17 @@ export function SportivraApp({
                     setPendingReminderMatchId(null)
                     setAuthModalMode('signin')
                   }}
-                  className="hidden min-h-11 items-center rounded-full px-4 text-sm font-semibold text-white/75 transition hover:bg-white/10 hover:text-white sm:flex"
+                  className="flex min-h-10 items-center rounded-full border border-slate-200 bg-slate-100 px-3 text-xs font-bold text-[#0b1220] sm:hidden dark:border-white/12 dark:bg-white/5 dark:text-white"
+                >
+                  Sign in
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingReminderMatchId(null)
+                    setAuthModalMode('signin')
+                  }}
+                  className="hidden min-h-11 items-center rounded-full px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-[#0b1220] sm:flex dark:text-white/75 dark:hover:bg-white/10 dark:hover:text-white"
                 >
                   Sign in
                 </button>
@@ -798,7 +1400,7 @@ export function SportivraApp({
                     setPendingReminderMatchId(null)
                     setAuthModalMode('signup')
                   }}
-                  className="hidden min-h-11 items-center gap-1.5 rounded-full bg-[#39ff14] px-5 text-sm font-bold text-[#0b1220] transition hover:bg-[#a8ff9d] sm:flex"
+                  className="hidden min-h-11 items-center gap-1.5 rounded-full bg-[#39ff14] px-5 text-sm font-bold text-[#0b1220] transition hover:bg-[#5cff3d] sm:flex dark:hover:bg-[#a8ff9d]"
                 >
                   Join now <ArrowRight size={14} />
                 </button>
@@ -807,7 +1409,8 @@ export function SportivraApp({
             <button
               type="button"
               onClick={() => setMobileNav((prev) => !prev)}
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-white/8 lg:hidden"
+              aria-expanded={mobileNav}
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-[#0b1220] sm:h-11 sm:w-11 lg:hidden dark:bg-white/8 dark:text-white"
               aria-label={mobileNav ? 'Close menu' : 'Open menu'}
             >
               {mobileNav ? <X size={20} /> : <Menu size={20} />}
@@ -816,16 +1419,19 @@ export function SportivraApp({
         </div>
 
         {searchOpen && (
-          <div className="border-t border-white/10 bg-[#0b1220]/95 px-5 py-3 backdrop-blur-xl">
+          <div className="border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-xl sm:px-5 dark:border-white/10 dark:bg-[#0b1220]/95">
             <div className="mx-auto max-w-7xl">
-              <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4">
-                <Search size={18} className="text-white/40" />
+              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 sm:px-4 dark:border-white/10 dark:bg-white/5">
+                <Search
+                  size={18}
+                  className="shrink-0 text-slate-400 dark:text-white/40"
+                />
                 <input
                   autoFocus
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search sports, teams, players, news..."
-                  className="h-12 w-full bg-transparent text-base text-white outline-none placeholder:text-white/35"
+                  className="h-12 w-full bg-transparent text-base text-[#0b1220] outline-none placeholder:text-slate-400 dark:text-white dark:placeholder:text-white/35"
                 />
                 {searchQuery && (
                   <button
@@ -833,27 +1439,75 @@ export function SportivraApp({
                     onClick={() => {
                       setSearchQuery('')
                       setSearchResults(null)
+                      setSearchError(null)
                     }}
-                    className="text-xs font-semibold text-white/50 hover:text-white"
+                    className="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-200/70 hover:text-[#0b1220] dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white"
                   >
                     Clear
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => setSearchOpen(false)}
+                  aria-label="Close search"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-200/70 hover:text-[#0b1220] dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white"
+                >
+                  <X size={16} />
+                </button>
               </div>
 
+              {!searchQuery.trim() && sports.length > 0 && (
+                <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs">
+                  <span className="font-semibold text-slate-500 dark:text-white/50">
+                    Quick filter:
+                  </span>
+                  {sports.slice(0, 6).map((sport) => (
+                    <button
+                      key={sport.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedSportSlug(sport.slug)
+                        setSearchOpen(false)
+                        document
+                          .getElementById('live')
+                          ?.scrollIntoView({ behavior: 'smooth' })
+                      }}
+                      className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-[#0b1220] transition hover:border-[#0f7a06] dark:border-white/12 dark:bg-white/5 dark:text-white/80 dark:hover:border-[#39ff14]"
+                    >
+                      <span>{sport.icon}</span>
+                      <span>{sport.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {searchQuery.trim() && (
-                <div className="mt-3 max-h-[60vh] overflow-y-auto rounded-xl border border-white/10 bg-[#0e1727] p-4">
+                <div className="mt-3 max-h-[60vh] overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 shadow-xl dark:border-white/10 dark:bg-[#0e1727] dark:shadow-none">
                   {searchLoading ? (
-                    <div className="flex items-center gap-2 text-xs text-white/60">
-                      <Loader2 size={14} className="animate-spin text-[#39ff14]" />
+                    <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-white/60">
+                      <Loader2
+                        size={14}
+                        className="animate-spin text-[#0f7a06] dark:text-[#39ff14]"
+                      />
                       Searching SPORTIVRA database...
+                    </div>
+                  ) : searchError ? (
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs text-red-700 dark:border-[#ff3b45]/35 dark:bg-[#ff3b45]/10 dark:text-[#ff8b91]">
+                      <span>{searchError}</span>
+                      <button
+                        type="button"
+                        onClick={() => void runSearch(searchQuery)}
+                        className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 font-bold text-[#0b1220] shadow-sm dark:bg-[#0b1220] dark:text-white"
+                      >
+                        <RefreshCw size={12} /> Retry
+                      </button>
                     </div>
                   ) : searchResults &&
                     searchResults.sports.length === 0 &&
                     searchResults.matches.length === 0 &&
                     searchResults.highlights.length === 0 &&
                     searchResults.newsArticles.length === 0 ? (
-                    <p className="text-xs text-white/55">
+                    <p className="text-xs text-slate-500 dark:text-white/55">
                       No matching sports, fixtures, highlights, or articles found for
                       &ldquo;{searchQuery.trim()}&rdquo;.
                     </p>
@@ -862,7 +1516,7 @@ export function SportivraApp({
                       <div className="space-y-4">
                         {searchResults.sports.length > 0 && (
                           <div>
-                            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[#39ff14]">
+                            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[#0f7a06] dark:text-[#39ff14]">
                               Sports
                             </p>
                             <div className="flex flex-wrap gap-2">
@@ -877,7 +1531,7 @@ export function SportivraApp({
                                       .getElementById('live')
                                       ?.scrollIntoView({ behavior: 'smooth' })
                                   }}
-                                  className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-xs font-semibold text-white hover:border-[#39ff14]"
+                                  className="rounded-full border border-slate-200 bg-slate-50 px-3.5 py-1.5 text-xs font-semibold text-[#0b1220] hover:border-[#0f7a06] dark:border-white/15 dark:bg-white/5 dark:text-white dark:hover:border-[#39ff14]"
                                 >
                                   {sport.icon} {sport.name}
                                 </button>
@@ -888,7 +1542,7 @@ export function SportivraApp({
 
                         {searchResults.matches.length > 0 && (
                           <div>
-                            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[#39ff14]">
+                            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[#0f7a06] dark:text-[#39ff14]">
                               Matches
                             </p>
                             <div className="grid gap-2 sm:grid-cols-2">
@@ -900,20 +1554,20 @@ export function SportivraApp({
                                     setMediaViewer({ kind: 'match', match })
                                     setSearchOpen(false)
                                   }}
-                                  className="flex items-center justify-between rounded-lg border border-white/10 bg-[#0b1220] px-3.5 py-2.5 text-left hover:border-[#39ff14]/60"
+                                  className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-left hover:border-[#0f7a06]/60 dark:border-white/10 dark:bg-[#0b1220] dark:hover:border-[#39ff14]/60"
                                 >
                                   <div>
-                                    <p className="text-xs font-bold text-white">
+                                    <p className="text-xs font-bold text-[#0b1220] dark:text-white">
                                       {match.headline
                                         ? `${match.headline} • `
                                         : ''}
                                       {match.home_team} vs {match.away_team}
                                     </p>
-                                    <p className="text-[11px] text-white/50">
+                                    <p className="text-[11px] text-slate-500 dark:text-white/50">
                                       {match.league}
                                     </p>
                                   </div>
-                                  <span className="text-[10px] font-bold uppercase text-[#39ff14]">
+                                  <span className="text-[10px] font-bold uppercase text-[#0f7a06] dark:text-[#39ff14]">
                                     {match.status}
                                   </span>
                                 </button>
@@ -924,7 +1578,7 @@ export function SportivraApp({
 
                         {searchResults.highlights.length > 0 && (
                           <div>
-                            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[#39ff14]">
+                            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[#0f7a06] dark:text-[#39ff14]">
                               Highlights
                             </p>
                             <div className="grid gap-2 sm:grid-cols-2">
@@ -939,12 +1593,12 @@ export function SportivraApp({
                                     })
                                     setSearchOpen(false)
                                   }}
-                                  className="rounded-lg border border-white/10 bg-[#0b1220] px-3.5 py-2.5 text-left hover:border-[#39ff14]/60"
+                                  className="rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-left hover:border-[#0f7a06]/60 dark:border-white/10 dark:bg-[#0b1220] dark:hover:border-[#39ff14]/60"
                                 >
-                                  <p className="text-xs font-bold text-white">
+                                  <p className="text-xs font-bold text-[#0b1220] dark:text-white">
                                     {h.title}
                                   </p>
-                                  <p className="text-[11px] text-white/50">
+                                  <p className="text-[11px] text-slate-500 dark:text-white/50">
                                     {h.badge}
                                   </p>
                                 </button>
@@ -955,7 +1609,7 @@ export function SportivraApp({
 
                         {searchResults.newsArticles.length > 0 && (
                           <div>
-                            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[#39ff14]">
+                            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[#0f7a06] dark:text-[#39ff14]">
                               News
                             </p>
                             <div className="grid gap-2 sm:grid-cols-2">
@@ -967,12 +1621,12 @@ export function SportivraApp({
                                     setActiveArticle(article)
                                     setSearchOpen(false)
                                   }}
-                                  className="rounded-lg border border-white/10 bg-[#0b1220] px-3.5 py-2.5 text-left hover:border-[#39ff14]/60"
+                                  className="rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-left hover:border-[#0f7a06]/60 dark:border-white/10 dark:bg-[#0b1220] dark:hover:border-[#39ff14]/60"
                                 >
-                                  <p className="text-xs font-bold text-white">
+                                  <p className="text-xs font-bold text-[#0b1220] dark:text-white">
                                     {article.title}
                                   </p>
-                                  <p className="text-[11px] text-white/50">
+                                  <p className="text-[11px] text-slate-500 dark:text-white/50">
                                     {article.category} • {article.read_time}
                                   </p>
                                 </button>
@@ -990,23 +1644,50 @@ export function SportivraApp({
         )}
 
         {mobileNav && (
-          <nav className="border-t border-white/10 bg-[#0b1220] px-5 py-4 lg:hidden">
-            {navItems.map((item, i) => (
-              <a
-                key={item}
-                href={i === 0 ? '#top' : `#${item.toLowerCase()}`}
-                onClick={(e) => handleNavClick(e, item)}
-                className="flex min-h-11 items-center justify-between border-b border-white/8 text-sm font-semibold text-white/80 last:border-0"
+          <nav
+            aria-label="Mobile navigation"
+            className="border-t border-slate-200 bg-white px-5 py-4 lg:hidden dark:border-white/10 dark:bg-[#0b1220]"
+          >
+            {navItems.map((item) => {
+              const isActive = activeNavId === item.id
+              return (
+                <a
+                  key={item.id}
+                  href={item.href}
+                  onClick={(e) => handleNavClick(e, item)}
+                  className={`flex min-h-11 items-center justify-between border-b border-slate-200 text-sm font-semibold last:border-0 dark:border-white/8 ${
+                    isActive
+                      ? 'text-[#0f7a06] dark:text-[#39ff14]'
+                      : 'text-slate-700 dark:text-white/80'
+                  }`}
+                >
+                  <span>{item.label}</span>
+                  {item.id === 'live' && globalLiveMatches.length > 0 && (
+                    <span className="rounded-full bg-[#ff3b45] px-2 py-0.5 text-[10px] font-black uppercase text-white">
+                      {globalLiveMatches.length} Live
+                    </span>
+                  )}
+                  {item.id === 'my-teams' && favoriteTeams.length > 0 && (
+                    <span className="rounded-full bg-[#39ff14]/25 px-2 py-0.5 text-[10px] font-black text-[#0f7a06] dark:bg-[#39ff14]/20 dark:text-[#39ff14]">
+                      {favoriteTeams.length} Followed
+                    </span>
+                  )}
+                </a>
+              )
+            })}
+
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3 dark:border-white/10">
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="flex min-h-11 items-center gap-2 rounded-full border border-slate-300 bg-slate-100 px-4 text-xs font-semibold text-[#0b1220] dark:border-white/15 dark:bg-white/5 dark:text-white"
               >
-                <span>{item}</span>
-                {item === 'Live' && globalLiveMatches.length > 0 && (
-                  <span className="rounded-full bg-[#ff3b45] px-2 py-0.5 text-[10px] font-black uppercase text-white">
-                    {globalLiveMatches.length} Live
-                  </span>
-                )}
-              </a>
-            ))}
-            <div className="mt-3 flex flex-wrap gap-2 border-t border-white/10 pt-3">
+                <Sun size={14} className="hidden text-[#39ff14] dark:block" />
+                <Moon size={14} className="block text-[#0b1220] dark:hidden" />
+                <span className="hidden dark:inline">Light mode</span>
+                <span className="inline dark:hidden">Dark mode</span>
+              </button>
+
               {user ? (
                 <button
                   type="button"
@@ -1026,7 +1707,7 @@ export function SportivraApp({
                       setMobileNav(false)
                       setAuthModalMode('signin')
                     }}
-                    className="flex min-h-11 items-center rounded-full border border-white/15 px-5 text-xs font-semibold text-white"
+                    className="flex min-h-11 items-center rounded-full border border-slate-300 px-5 text-xs font-semibold text-[#0b1220] dark:border-white/15 dark:text-white"
                   >
                     Sign in
                   </button>
@@ -1066,9 +1747,9 @@ export function SportivraApp({
               <br />
               ON DEMAND.
             </h1>
-            <p className="mt-5 max-w-md text-sm leading-6 text-white/70 sm:mt-6 sm:text-lg sm:leading-7">
-              Stream live fixtures, real-time scores, curated highlights, and
-              match schedules — all in one place.
+            <p className="mt-4 max-w-lg text-sm leading-6 text-white/80 sm:mt-5 sm:text-base sm:leading-7">
+              Watch live fixtures, check final scores, set kick-off reminders,
+              and follow your favourite teams and sports — all in one place.
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
               <button
@@ -1086,9 +1767,21 @@ export function SportivraApp({
               </button>
               <a
                 href="#sports"
-                className="flex min-h-12 items-center gap-2 rounded-full border border-white/20 bg-white/5 px-6 text-sm font-bold text-white backdrop-blur transition hover:border-[#39ff14]/50 hover:bg-white/10"
+                className="flex min-h-12 items-center gap-2 rounded-full border border-white/25 bg-white/10 px-6 text-sm font-bold text-white backdrop-blur transition hover:border-[#39ff14]/60 hover:bg-white/15"
               >
                 Explore sports <ArrowRight size={16} />
+              </a>
+              <a
+                href="#my-teams"
+                className="flex min-h-12 items-center gap-2 rounded-full border border-white/25 bg-[#0b1220]/55 px-5 text-sm font-bold text-white backdrop-blur transition hover:border-[#39ff14]/60 hover:bg-[#0b1220]/80"
+              >
+                <Heart size={15} className="text-[#39ff14]" />
+                My Teams
+                {favoriteTeams.length > 0 && (
+                  <span className="rounded-full bg-[#39ff14] px-2 py-0.5 text-[10px] font-black text-[#0b1220]">
+                    {favoriteTeams.length}
+                  </span>
+                )}
               </a>
             </div>
           </div>
@@ -1096,45 +1789,45 @@ export function SportivraApp({
           {/* Integrated Live Scoreboard Ticker Strip */}
           <div className="mt-10">
             {catalogLoading ? (
-              <div className="grid gap-3 rounded-2xl border border-white/10 bg-[#0e1727]/80 p-3 backdrop-blur-xl sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-xl backdrop-blur-xl sm:grid-cols-2 lg:grid-cols-4 dark:border-white/10 dark:bg-[#0e1727]/80 dark:shadow-none">
                 {Array.from({ length: 4 }).map((_, idx) => (
                   <div
                     key={idx}
-                    className="h-[72px] animate-pulse rounded-xl bg-white/5"
+                    className="h-[72px] animate-pulse rounded-xl bg-slate-200 dark:bg-white/5"
                   />
                 ))}
               </div>
             ) : globalLiveMatches.length > 0 ? (
-              <div className="grid gap-2 rounded-2xl border border-white/12 bg-[#0e1727]/85 p-2.5 shadow-2xl backdrop-blur-xl sm:grid-cols-2 lg:grid-cols-[repeat(3,minmax(0,1fr))_auto]">
+              <div className="grid gap-2 rounded-2xl border border-slate-200/90 bg-white/95 p-2.5 shadow-xl backdrop-blur-xl sm:grid-cols-2 lg:grid-cols-[repeat(3,minmax(0,1fr))_auto] dark:border-white/12 dark:bg-[#0e1727]/85 dark:shadow-2xl">
                 {globalLiveMatches.slice(0, 3).map((match) => (
                   <button
                     key={match.id}
                     type="button"
                     onClick={() => setMediaViewer({ kind: 'match', match })}
-                    className="group flex flex-col justify-between rounded-xl border border-white/8 bg-[#0b1220]/70 px-3.5 py-2.5 text-left transition hover:border-[#39ff14]/50 hover:bg-[#1f2937]/70"
+                    className="group flex flex-col justify-between rounded-xl border border-slate-200 bg-slate-50/90 px-3.5 py-2.5 text-left transition hover:border-[#0f7a06]/50 hover:bg-white dark:border-white/8 dark:bg-[#0b1220]/70 dark:hover:border-[#39ff14]/50 dark:hover:bg-[#1f2937]/70"
                   >
                     <div className="flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wider">
-                      <span className="flex items-center gap-1.5 text-[#ff5c64]">
+                      <span className="flex items-center gap-1.5 text-[#c81e28] dark:text-[#ff5c64]">
                         <span className="h-1.5 w-1.5 rounded-full bg-[#ff3b45]" />
                         LIVE
                       </span>
-                      <span className="truncate text-white/45">
+                      <span className="truncate text-slate-500 dark:text-white/45">
                         {match.sport?.name ?? 'Sport'} • {match.league}
                       </span>
                     </div>
                     <div className="mt-2 flex items-center justify-between gap-2">
-                      <div className="min-w-0 space-y-0.5 text-xs font-semibold text-white">
+                      <div className="min-w-0 space-y-0.5 text-xs font-semibold text-[#0b1220] dark:text-white">
                         <p className="truncate">{match.home_team}</p>
-                        <p className="truncate text-white/75">
+                        <p className="truncate text-slate-600 dark:text-white/75">
                           {match.away_team}
                         </p>
                       </div>
                       <div className="shrink-0 text-right">
-                        <p className="text-base font-black tracking-tight text-[#39ff14]">
+                        <p className="text-base font-black tracking-tight text-[#0f7a06] dark:text-[#39ff14]">
                           {match.home_score} - {match.away_score}
                         </p>
                         {match.match_clock && (
-                          <p className="text-[10px] font-bold text-[#ff8b91]">
+                          <p className="text-[10px] font-bold text-[#c81e28] dark:text-[#ff8b91]">
                             {match.match_clock}
                           </p>
                         )}
@@ -1145,21 +1838,21 @@ export function SportivraApp({
                 <button
                   type="button"
                   onClick={() => void handleOpenMatchCenter('all')}
-                  className="flex min-h-[60px] items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 text-xs font-bold text-white transition hover:border-[#39ff14]/50 hover:text-[#39ff14] sm:col-span-2 lg:col-span-1"
+                  className="flex min-h-[60px] items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-4 text-xs font-bold text-[#0b1220] transition hover:border-[#0f7a06]/50 hover:text-[#0f7a06] sm:col-span-2 lg:col-span-1 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:border-[#39ff14]/50 dark:hover:text-[#39ff14]"
                 >
                   View all scores <ArrowRight size={14} />
                 </button>
               </div>
             ) : (
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#0e1727]/85 px-4 py-3 backdrop-blur-xl">
-                <p className="text-xs font-semibold text-white/70">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white/95 px-4 py-3 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-[#0e1727]/85 dark:shadow-none">
+                <p className="text-xs font-semibold text-slate-700 dark:text-white/70">
                   No live fixtures active at the moment — check upcoming kickoffs
                   or final results.
                 </p>
                 <button
                   type="button"
                   onClick={() => void handleOpenMatchCenter('all')}
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-[#39ff14] hover:text-[#a8ff9d]"
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-[#0f7a06] hover:underline dark:text-[#39ff14] dark:hover:text-[#a8ff9d]"
                 >
                   Open match centre <ArrowRight size={14} />
                 </button>
@@ -1169,18 +1862,94 @@ export function SportivraApp({
         </div>
       </section>
 
-      {selectedSport && (
-        <div className="border-y border-white/10 bg-[#0e1727] px-5 py-3 lg:px-8">
+      {/* First-Time Visitor Quick-Orientation & Section Jump Bar */}
+      <div className="border-b border-slate-200 bg-white/95 px-4 py-3 lg:px-8 dark:border-white/8 dark:bg-[#0e1727]">
+        <div className="mx-auto flex max-w-7xl items-center gap-2 overflow-x-auto pb-0.5">
+          <span className="hidden shrink-0 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400 sm:inline dark:text-white/40">
+            Jump to
+          </span>
+          <a
+            href="#live"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3.5 py-1.5 text-xs font-semibold text-[#0b1220] transition hover:border-[#0f7a06]/60 dark:border-white/12 dark:bg-white/5 dark:text-white/85 dark:hover:border-[#39ff14]/60"
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-[#ff3b45]" />
+            Live Sports ({globalLiveMatches.length})
+          </a>
+          <a
+            href="#my-sports"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3.5 py-1.5 text-xs font-semibold text-[#0b1220] transition hover:border-[#0f7a06]/60 dark:border-white/12 dark:bg-white/5 dark:text-white/85 dark:hover:border-[#39ff14]/60"
+          >
+            <Sparkles size={12} className="text-[#0f7a06] dark:text-[#39ff14]" />
+            Favourite Sports ({favoriteSportIds.length})
+          </a>
+          <a
+            href="#my-teams"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3.5 py-1.5 text-xs font-semibold text-[#0b1220] transition hover:border-[#0f7a06]/60 dark:border-white/12 dark:bg-white/5 dark:text-white/85 dark:hover:border-[#39ff14]/60"
+          >
+            <Heart size={12} className="text-[#0f7a06] dark:text-[#39ff14]" />
+            My Teams ({favoriteTeams.length})
+          </a>
+          <a
+            href="#schedule"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3.5 py-1.5 text-xs font-semibold text-[#0b1220] transition hover:border-[#0f7a06]/60 dark:border-white/12 dark:bg-white/5 dark:text-white/85 dark:hover:border-[#39ff14]/60"
+          >
+            <Clock3 size={12} className="text-[#0f7a06] dark:text-[#39ff14]" />
+            Upcoming ({matches.filter((m) => m.status === 'upcoming').length})
+          </a>
+          <button
+            type="button"
+            onClick={() => void handleOpenMatchCenter('finished')}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3.5 py-1.5 text-xs font-semibold text-[#0b1220] transition hover:border-[#0f7a06]/60 dark:border-white/12 dark:bg-white/5 dark:text-white/85 dark:hover:border-[#39ff14]/60"
+          >
+            <Trophy size={12} className="text-[#0f7a06] dark:text-[#39ff14]" />
+            Final Scores ({matches.filter((m) => m.status === 'finished').length})
+          </button>
+          <a
+            href="#highlights"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3.5 py-1.5 text-xs font-semibold text-[#0b1220] transition hover:border-[#0f7a06]/60 dark:border-white/12 dark:bg-white/5 dark:text-white/85 dark:hover:border-[#39ff14]/60"
+          >
+            Highlights ({highlights.length})
+          </a>
+          <a
+            href="#news"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3.5 py-1.5 text-xs font-semibold text-[#0b1220] transition hover:border-[#0f7a06]/60 dark:border-white/12 dark:bg-white/5 dark:text-white/85 dark:hover:border-[#39ff14]/60"
+          >
+            News ({newsArticles.length})
+          </a>
+        </div>
+      </div>
+
+      {catalogError && !catalogLoading && (
+        <div className="border-b border-red-200 bg-red-50 px-5 py-3 lg:px-8 dark:border-[#ff3b45]/30 dark:bg-[#ff3b45]/10">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
-            <p className="text-xs font-semibold text-white/80">
+            <p className="text-xs font-semibold text-red-700 dark:text-[#ff8b91]">
+              Some live sports data could not be loaded: {catalogError}
+            </p>
+            <button
+              type="button"
+              onClick={() => void retryCatalogLoad()}
+              className="inline-flex items-center gap-1.5 rounded-full bg-white px-3.5 py-1.5 text-xs font-bold text-[#0b1220] shadow-sm transition hover:bg-slate-100 dark:bg-[#0b1220] dark:text-white dark:hover:bg-white/10"
+            >
+              <RefreshCw size={12} /> Retry loading
+            </button>
+          </div>
+        </div>
+      )}
+
+      {selectedSport && (
+        <div className="border-y border-slate-200 bg-white px-5 py-3 lg:px-8 dark:border-white/10 dark:bg-[#0e1727]">
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
+            <p className="text-xs font-semibold text-slate-700 dark:text-white/80">
               Filtering by {selectedSport.icon}{' '}
-              <span className="text-[#39ff14]">{selectedSport.name}</span> across
-              live matches, final scores, schedule, highlights &amp; news
+              <span className="font-bold text-[#0f7a06] dark:text-[#39ff14]">
+                {selectedSport.name}
+              </span>{' '}
+              across live matches, final scores, schedule, highlights &amp; news
             </p>
             <button
               type="button"
               onClick={() => setSelectedSportSlug(null)}
-              className="flex items-center gap-1 rounded-full border border-white/15 px-3 py-1 text-xs font-bold text-white/75 transition hover:border-[#39ff14] hover:text-white"
+              className="flex items-center gap-1 rounded-full border border-slate-300 px-3 py-1 text-xs font-bold text-slate-700 transition hover:border-[#0f7a06] hover:text-[#0b1220] dark:border-white/15 dark:text-white/75 dark:hover:border-[#39ff14] dark:hover:text-white"
             >
               Show all <X size={13} />
             </button>
@@ -1197,12 +1966,19 @@ export function SportivraApp({
           eyebrow="Happening now"
           title="Live on SPORTIVRA"
           badge={
-            liveMatches.length > 0 ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#ff3b45] px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-white">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
-                Live
-              </span>
-            ) : undefined
+            <div className="flex flex-wrap items-center gap-2">
+              {liveMatches.length > 0 && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#ff3b45] px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-white">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+                  Live
+                </span>
+              )}
+              {favoriteSportIds.length > 0 && !selectedSport && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#0f7a06] dark:border-[#39ff14]/35 dark:bg-[#39ff14]/10 dark:text-[#39ff14]">
+                  <Sparkles size={11} /> Prioritised for your sports
+                </span>
+              )}
+            </div>
           }
           action="View all live"
           onAction={() => void handleOpenMatchCenter('live')}
@@ -1210,15 +1986,15 @@ export function SportivraApp({
 
         {catalogLoading ? (
           <div className="grid gap-4 lg:grid-cols-3">
-            <div className="min-h-[300px] animate-pulse rounded-2xl border border-white/10 bg-[#1f2937]/40 lg:col-span-2" />
+            <div className="min-h-[300px] animate-pulse rounded-2xl border border-slate-200 bg-slate-200/70 lg:col-span-2 dark:border-white/10 dark:bg-[#1f2937]/40" />
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
-              <div className="min-h-[142px] animate-pulse rounded-2xl border border-white/10 bg-[#1f2937]/40" />
-              <div className="min-h-[142px] animate-pulse rounded-2xl border border-white/10 bg-[#1f2937]/40" />
+              <div className="min-h-[142px] animate-pulse rounded-2xl border border-slate-200 bg-slate-200/70 dark:border-white/10 dark:bg-[#1f2937]/40" />
+              <div className="min-h-[142px] animate-pulse rounded-2xl border border-slate-200 bg-slate-200/70 dark:border-white/10 dark:bg-[#1f2937]/40" />
             </div>
           </div>
         ) : liveMatches.length === 0 ? (
-          <div className="rounded-2xl border border-white/10 bg-[#1f2937]/40 p-8 text-center">
-            <p className="text-sm text-white/65">
+          <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm dark:border-white/10 dark:bg-[#1f2937]/40 dark:shadow-none">
+            <p className="text-sm text-slate-600 dark:text-white/65">
               No live {selectedSport ? `${selectedSport.name} ` : ''}events are
               currently active.
             </p>
@@ -1235,7 +2011,7 @@ export function SportivraApp({
         ) : (
           <div className="grid gap-4 lg:grid-cols-3">
             {featuredLive && (
-              <article className="live-feature group relative min-h-[320px] overflow-hidden rounded-2xl lg:col-span-2">
+              <article className="live-feature group relative min-h-[320px] overflow-hidden rounded-2xl bg-[#0b1220] text-white lg:col-span-2">
                 {featuredLive.image_url && (
                   <img
                     src={featuredLive.image_url}
@@ -1253,23 +2029,23 @@ export function SportivraApp({
                       <span className="h-1.5 w-1.5 rounded-full bg-white" />
                       Live{featuredLive.match_clock ? ` • ${featuredLive.match_clock}` : ''}
                     </span>
-                    <span className="rounded-full border border-white/15 bg-[#0b1220]/70 px-3 py-1 text-[11px] font-semibold text-white/80 backdrop-blur">
+                    <span className="rounded-full border border-white/15 bg-[#0b1220]/70 px-3 py-1 text-[11px] font-semibold text-white/85 backdrop-blur">
                       {featuredLive.league}
                     </span>
                   </div>
 
                   <div>
                     {featuredLive.headline ? (
-                      <h3 className="text-2xl font-black tracking-tight sm:text-3xl">
+                      <h3 className="text-2xl font-black tracking-tight text-white sm:text-3xl">
                         {featuredLive.headline}
                       </h3>
                     ) : (
                       <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 sm:gap-5">
                         <div className="flex items-center gap-2.5">
-                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/20 bg-[#0b1220]/80 text-sm font-black">
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/20 bg-[#0b1220]/80 text-sm font-black text-white">
                             {featuredLive.home_team[0]}
                           </span>
-                          <span className="truncate text-base font-bold sm:text-xl">
+                          <span className="truncate text-base font-bold text-white sm:text-xl">
                             {featuredLive.home_team}
                           </span>
                         </div>
@@ -1277,10 +2053,10 @@ export function SportivraApp({
                           {featuredLive.home_score} — {featuredLive.away_score}
                         </span>
                         <div className="flex items-center justify-end gap-2.5 text-right">
-                          <span className="truncate text-base font-bold sm:text-xl">
+                          <span className="truncate text-base font-bold text-white sm:text-xl">
                             {featuredLive.away_team}
                           </span>
-                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/20 bg-[#0b1220]/80 text-sm font-black">
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/20 bg-[#0b1220]/80 text-sm font-black text-white">
                             {featuredLive.away_team[0]}
                           </span>
                         </div>
@@ -1290,7 +2066,7 @@ export function SportivraApp({
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-4 border-t border-white/15 pt-4">
                       <div className="flex items-center gap-3">
                         <span className="h-1 w-20 rounded-full bg-[#39ff14]" />
-                        <span className="text-xs font-semibold text-white/75">
+                        <span className="text-xs font-semibold text-white/80">
                           {featuredLive.sport?.name ?? 'Live broadcast'}
                           {featuredLive.headline
                             ? ` • ${featuredLive.home_score} — ${featuredLive.away_score}`
@@ -1317,15 +2093,23 @@ export function SportivraApp({
                 {secondaryLive.map((match) => (
                   <article
                     key={match.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setMediaViewer({ kind: 'match', match })}
-                    className="group flex min-h-[152px] cursor-pointer flex-col justify-between rounded-2xl border border-white/10 bg-[#0e1727] p-4 transition hover:border-[#39ff14]/50"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setMediaViewer({ kind: 'match', match })
+                      }
+                    }}
+                    className="group flex min-h-[152px] cursor-pointer flex-col justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-[#0f7a06]/50 dark:border-white/10 dark:bg-[#0e1727] dark:shadow-none dark:hover:border-[#39ff14]/50"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="inline-flex items-center gap-1.5 rounded-full bg-[#ff3b45] px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-white">
                         <span className="h-1.5 w-1.5 rounded-full bg-white" />
                         Live
                       </span>
-                      <span className="truncate text-[11px] font-semibold text-white/55">
+                      <span className="truncate text-[11px] font-semibold text-slate-500 dark:text-white/55">
                         {match.match_clock ? `${match.match_clock} • ` : ''}
                         {match.league}
                       </span>
@@ -1333,17 +2117,17 @@ export function SportivraApp({
 
                     <div className="my-3 flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <h3 className="truncate text-base font-bold text-white transition group-hover:text-[#39ff14]">
+                        <h3 className="truncate text-base font-bold text-[#0b1220] transition group-hover:text-[#0f7a06] dark:text-white dark:group-hover:text-[#39ff14]">
                           {match.headline ||
                             `${match.home_team} vs ${match.away_team}`}
                         </h3>
-                        <p className="mt-1 text-xl font-black tracking-tight text-white">
+                        <p className="mt-1 text-xl font-black tracking-tight text-[#0b1220] dark:text-white">
                           {match.home_score} — {match.away_score}
                         </p>
                       </div>
 
                       {match.image_url ? (
-                        <div className="h-16 w-24 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-[#0b1220]">
+                        <div className="h-16 w-24 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 dark:border-white/10 dark:bg-[#0b1220]">
                           <img
                             src={match.image_url}
                             alt={
@@ -1354,13 +2138,13 @@ export function SportivraApp({
                           />
                         </div>
                       ) : (
-                        <div className="flex h-16 w-24 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-[#0b1220] text-xl">
+                        <div className="flex h-16 w-24 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-100 text-xl dark:border-white/10 dark:bg-[#0b1220]">
                           {match.sport?.icon ?? '◉'}
                         </div>
                       )}
                     </div>
 
-                    <span className="inline-flex items-center gap-1 text-xs font-bold text-[#39ff14]">
+                    <span className="inline-flex items-center gap-1 text-xs font-bold text-[#0f7a06] dark:text-[#39ff14]">
                       Watch live <ArrowRight size={13} />
                     </span>
                   </article>
@@ -1371,20 +2155,24 @@ export function SportivraApp({
         )}
 
         {/* Final Scores Ribbon */}
-        <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-white/10 bg-[#0e1727]/90 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm lg:flex-row lg:items-center lg:justify-between dark:border-white/10 dark:bg-[#0e1727]/90 dark:shadow-none">
           <button
             type="button"
             onClick={() => void handleOpenMatchCenter('finished')}
-            className="inline-flex shrink-0 items-center gap-2 text-xs font-bold text-white transition hover:text-[#39ff14]"
+            className="inline-flex shrink-0 items-center gap-2 text-xs font-bold text-[#0b1220] transition hover:text-[#0f7a06] dark:text-white dark:hover:text-[#39ff14]"
           >
             <span className="h-2 w-2 rounded-full bg-[#39ff14]" />
-            Final scores <ArrowRight size={13} className="text-[#39ff14]" />
+            Final scores{' '}
+            <ArrowRight
+              size={13}
+              className="text-[#0f7a06] dark:text-[#39ff14]"
+            />
           </button>
 
           {catalogLoading ? (
-            <div className="h-7 flex-1 animate-pulse rounded-lg bg-white/5" />
+            <div className="h-7 flex-1 animate-pulse rounded-lg bg-slate-200 dark:bg-white/5" />
           ) : finishedMatches.length === 0 ? (
-            <p className="text-xs text-white/55">
+            <p className="text-xs text-slate-500 dark:text-white/55">
               No recent final scores for{' '}
               {selectedSport ? selectedSport.name : 'this view'}.
             </p>
@@ -1395,19 +2183,19 @@ export function SportivraApp({
                   key={match.id}
                   type="button"
                   onClick={() => setMediaViewer({ kind: 'match', match })}
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-[#0b1220] px-3 py-1.5 text-left text-xs transition hover:border-[#39ff14]/50"
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-left text-xs transition hover:border-[#0f7a06]/50 dark:border-white/10 dark:bg-[#0b1220] dark:hover:border-[#39ff14]/50"
                 >
-                  <span className="text-white/50">
+                  <span className="text-slate-500 dark:text-white/50">
                     {match.sport?.name ?? 'Sport'}
                   </span>
-                  <span className="font-semibold text-white">
+                  <span className="font-semibold text-[#0b1220] dark:text-white">
                     {match.home_team}{' '}
-                    <span className="mx-1 font-black text-[#39ff14]">
+                    <span className="mx-1 font-black text-[#0f7a06] dark:text-[#39ff14]">
                       {match.home_score} - {match.away_score}
                     </span>{' '}
                     {match.away_team}
                   </span>
-                  <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-bold text-white/75">
+                  <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold text-slate-700 dark:bg-white/10 dark:text-white/75">
                     {match.match_clock ?? 'FT'}
                   </span>
                 </button>
@@ -1420,12 +2208,17 @@ export function SportivraApp({
       {/* SECTION 3: Explore Sports */}
       <section
         id="sports"
-        className="scroll-mt-20 border-y border-white/6 bg-[#0e1727] px-5 py-16 lg:px-8"
+        className="scroll-mt-20 border-y border-slate-200 bg-white px-5 py-16 lg:px-8 dark:border-white/6 dark:bg-[#0e1727]"
       >
         <div className="mx-auto max-w-7xl">
           <SectionHeading
             eyebrow="Find your game"
             title="Explore sports"
+            badge={
+              <span className="text-xs font-medium text-slate-500 dark:text-white/50">
+                Tap a sport to filter the entire page — or save favourites below
+              </span>
+            }
             action={selectedSport ? 'Show all sports' : 'All sports'}
             onAction={() => {
               if (selectedSport) {
@@ -1440,44 +2233,59 @@ export function SportivraApp({
               ? Array.from({ length: 6 }).map((_, idx) => (
                   <div
                     key={idx}
-                    className="min-h-[172px] animate-pulse rounded-2xl border border-white/10 bg-[#1f2937]/40"
+                    className="min-h-[172px] animate-pulse rounded-2xl border border-slate-200 bg-slate-200/70 dark:border-white/10 dark:bg-[#1f2937]/40"
                   />
                 ))
               : sports.map((sport) => {
                   const isSelected = selectedSportSlug === sport.slug
+                  const isFav = favoriteSportIdSet.has(sport.id)
                   return (
                     <button
                       type="button"
                       key={sport.id}
+                      aria-pressed={isSelected}
                       onClick={() =>
                         setSelectedSportSlug((prev) =>
                           prev === sport.slug ? null : sport.slug,
                         )
                       }
                       className={`sport-tile flex flex-col justify-between bg-gradient-to-br text-left ${sport.gradient_class} ${
-                        isSelected ? 'ring-2 ring-[#39ff14]' : ''
+                        isSelected
+                          ? 'ring-2 ring-[#0f7a06] dark:ring-[#39ff14]'
+                          : ''
                       }`}
                     >
-                      <div className="flex items-start justify-between">
-                        <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#39ff14]/25 bg-[#0b1220]/70">
+                      <div className="flex items-start justify-between gap-1.5">
+                        <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#0b1220]/10 bg-[#0b1220] dark:border-[#39ff14]/25 dark:bg-[#0b1220]/70">
                           <SportLineIcon
                             slug={sport.slug}
                             fallback={sport.icon}
                           />
                         </span>
-                        <ChevronRight
-                          size={15}
-                          className={
-                            isSelected ? 'text-[#39ff14]' : 'text-white/40'
-                          }
-                        />
+                        <div className="flex items-center gap-1">
+                          {isFav && (
+                            <span className="rounded-full bg-[#39ff14] px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-[#0b1220]">
+                              Fav
+                            </span>
+                          )}
+                          <ChevronRight
+                            size={15}
+                            className={
+                              isSelected
+                                ? 'text-[#0f7a06] dark:text-[#39ff14]'
+                                : 'text-slate-400 dark:text-white/40'
+                            }
+                          />
+                        </div>
                       </div>
                       <div className="mt-6">
-                        <h3 className="font-bold text-white">{sport.name}</h3>
-                        <p className="mt-1 text-[11px] leading-snug text-white/60">
+                        <h3 className="font-bold text-[#0b1220] dark:text-white">
+                          {sport.name}
+                        </h3>
+                        <p className="mt-1 text-[11px] leading-snug text-slate-600 dark:text-white/60">
                           {getSportSubtitle(sport.slug)}
                         </p>
-                        <p className="mt-2 text-[10px] font-semibold uppercase tracking-wider text-[#39ff14]/85">
+                        <p className="mt-2 text-[10px] font-semibold uppercase tracking-wider text-[#0f7a06] dark:text-[#39ff14]/85">
                           {formatEventCount(sport.event_count)}
                         </p>
                       </div>
@@ -1485,73 +2293,688 @@ export function SportivraApp({
                   )
                 })}
           </div>
+
+          {/* Personalised Sports Selector & Spotlight */}
+          <div
+            id="my-sports"
+            className="mt-12 scroll-mt-24 rounded-2xl border border-slate-200 bg-[#f5f7fa] p-5 sm:p-6 dark:border-white/10 dark:bg-[#0b1220]/75"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#0f7a06] dark:text-[#39ff14]">
+                    Personalise your feed
+                  </p>
+                  <span className="rounded-full border border-slate-300 bg-white px-2.5 py-0.5 text-[10px] font-bold text-slate-600 dark:border-white/15 dark:bg-white/5 dark:text-white/65">
+                    {user
+                      ? 'Saved to your account'
+                      : 'Saved locally • Sign in to sync'}
+                  </span>
+                </div>
+                <h3 className="mt-1.5 text-xl font-bold tracking-tight text-[#0b1220] sm:text-2xl dark:text-white">
+                  Your favourite sports
+                </h3>
+                <p className="mt-1 text-xs leading-relaxed text-slate-600 sm:text-sm dark:text-white/60">
+                  Select one or more sports to prioritise their live games,
+                  upcoming fixtures, highlights, and news across SPORTIVRA.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {favoriteSportIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearFavoriteSports}
+                    className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3.5 text-xs font-semibold text-slate-700 transition hover:border-red-300 hover:text-red-700 dark:border-white/15 dark:bg-white/5 dark:text-white/75 dark:hover:border-[#ff3b45]/50 dark:hover:text-[#ff8b91]"
+                  >
+                    <X size={13} /> Clear selection
+                  </button>
+                )}
+                {!user && (
+                  <button
+                    type="button"
+                    onClick={() => setAuthModalMode('signin')}
+                    className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-[#39ff14] px-4 text-xs font-bold text-[#0b1220] transition hover:bg-[#5cff3d] dark:hover:bg-[#a8ff9d]"
+                  >
+                    Sign in to sync
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {catalogLoading ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {Array.from({ length: 6 }).map((_, idx) => (
+                  <div
+                    key={idx}
+                    className="h-10 w-28 animate-pulse rounded-full bg-slate-200 dark:bg-white/10"
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="mt-5 flex flex-wrap gap-2.5">
+                {sports.map((sport) => {
+                  const isFav = favoriteSportIdSet.has(sport.id)
+                  return (
+                    <button
+                      key={sport.id}
+                      type="button"
+                      onClick={() => toggleFavoriteSport(sport.id)}
+                      aria-pressed={isFav}
+                      className={`inline-flex min-h-10 items-center gap-2 rounded-full border px-4 py-2 text-xs font-bold transition ${
+                        isFav
+                          ? 'border-[#0f7a06] bg-[#39ff14] text-[#0b1220] shadow-sm dark:border-[#39ff14]'
+                          : 'border-slate-300 bg-white text-slate-700 hover:border-[#0f7a06]/60 hover:text-[#0b1220] dark:border-white/15 dark:bg-[#0e1727] dark:text-white/80 dark:hover:border-[#39ff14]/55 dark:hover:text-white'
+                      }`}
+                    >
+                      <span>{sport.icon}</span>
+                      <span>{sport.name}</span>
+                      {isFav ? <Check size={13} /> : <Plus size={13} />}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+
+            {favoriteSportsList.length > 0 && (
+              <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {favoriteSportsList.map((sport) => {
+                  const liveCount = matches.filter(
+                    (m) => m.sport_id === sport.id && m.status === 'live',
+                  ).length
+                  const upcomingCount = matches.filter(
+                    (m) => m.sport_id === sport.id && m.status === 'upcoming',
+                  ).length
+                  const highlightCount = highlights.filter(
+                    (h) => h.sport_id === sport.id,
+                  ).length
+                  const newsCount = newsArticles.filter(
+                    (a) => a.sport_id === sport.id,
+                  ).length
+
+                  return (
+                    <div
+                      key={sport.id}
+                      className="flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#0e1727] dark:shadow-none"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#0b1220]/10 bg-[#0b1220] dark:border-[#39ff14]/25">
+                            <SportLineIcon
+                              slug={sport.slug}
+                              fallback={sport.icon}
+                            />
+                          </span>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-bold text-[#0b1220] dark:text-white">
+                                {sport.name}
+                              </h4>
+                              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#0f7a06] dark:bg-[#39ff14]/15 dark:text-[#39ff14]">
+                                Prioritised
+                              </span>
+                            </div>
+                            <p className="mt-0.5 text-[11px] text-slate-500 dark:text-white/55">
+                              {getSportSubtitle(sport.slug)}
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => toggleFavoriteSport(sport.id)}
+                          aria-label={`Remove ${sport.name} from favourite sports`}
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-red-600 dark:text-white/45 dark:hover:bg-white/10 dark:hover:text-[#ff8b91]"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-600 dark:text-white/70">
+                        {liveCount > 0 && (
+                          <span className="rounded-md bg-red-50 px-2 py-0.5 font-bold text-[#c81e28] dark:bg-[#ff3b45]/15 dark:text-[#ff8b91]">
+                            {liveCount} live
+                          </span>
+                        )}
+                        <span className="rounded-md bg-slate-100 px-2 py-0.5 dark:bg-white/5">
+                          {upcomingCount} upcoming
+                        </span>
+                        <span className="rounded-md bg-slate-100 px-2 py-0.5 dark:bg-white/5">
+                          {highlightCount} highlights
+                        </span>
+                        <span className="rounded-md bg-slate-100 px-2 py-0.5 dark:bg-white/5">
+                          {newsCount} news
+                        </span>
+                      </div>
+
+                      <div className="mt-4 flex items-center justify-between border-t border-slate-200 pt-3 dark:border-white/8">
+                        <span className="text-[11px] font-medium text-slate-500 dark:text-white/45">
+                          {formatEventCount(sport.event_count)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedSportSlug(sport.slug)
+                            document
+                              .getElementById('live')
+                              ?.scrollIntoView({ behavior: 'smooth' })
+                          }}
+                          className="inline-flex items-center gap-1 text-xs font-bold text-[#0f7a06] hover:underline dark:text-[#39ff14]"
+                        >
+                          Filter {sport.name} <ArrowRight size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
-      {/* SECTION 4: Upcoming Matches */}
+      {/* SECTION 3B: My Teams — Followed Teams, Fixtures & Available Results */}
       <section
-        id="schedule"
+        id="my-teams"
         className="mx-auto max-w-7xl scroll-mt-20 px-5 py-16 lg:px-8"
       >
         <SectionHeading
-          eyebrow="Plan your watchlist"
-          title="Upcoming matches"
-          action="View full schedule"
-          onAction={() => void handleOpenMatchCenter('upcoming')}
+          eyebrow="Personal watchlist"
+          title="My Teams"
+          badge={
+            <div className="flex flex-wrap items-center gap-2">
+              {favoriteTeams.length > 0 && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#0f7a06] dark:border-[#39ff14]/35 dark:bg-[#39ff14]/15 dark:text-[#39ff14]">
+                  <Heart size={11} /> {favoriteTeams.length} following
+                </span>
+              )}
+              <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-600 dark:border-white/12 dark:bg-white/5 dark:text-white/60">
+                {user ? 'Synced to profile' : 'Saved locally until sign-in'}
+              </span>
+            </div>
+          }
+          action={
+            favoriteTeams.length > 0
+              ? teamBrowserOpen
+                ? 'Hide team directory'
+                : 'Manage teams'
+              : undefined
+          }
+          onAction={
+            favoriteTeams.length > 0
+              ? () => setTeamBrowserOpen((prev) => !prev)
+              : undefined
+          }
         />
+
         {catalogLoading ? (
           <div className="grid gap-4 md:grid-cols-3">
             {Array.from({ length: 3 }).map((_, idx) => (
               <div
                 key={idx}
-                className="min-h-[248px] animate-pulse rounded-2xl border border-white/10 bg-[#1f2937]/40"
+                className="min-h-[164px] animate-pulse rounded-2xl border border-slate-200 bg-slate-200/70 dark:border-white/10 dark:bg-[#1f2937]/40"
               />
             ))}
-          </div>
-        ) : upcomingMatches.length === 0 ? (
-          <div className="rounded-2xl border border-white/10 bg-[#1f2937]/40 p-8 text-center">
-            <p className="text-sm text-white/60">
-              No upcoming {selectedSport ? `${selectedSport.name} ` : ''}matches
-              are scheduled right now.
-            </p>
           </div>
         ) : (
-          <div className="grid gap-4 md:grid-cols-3">
-            {upcomingMatches.map((match) => (
-              <MatchCard
-                key={match.id}
-                match={match}
-                isReminded={remindedIds.has(match.id)}
-                isSaving={savingReminderId === match.id}
-                serverDateUtc={serverDateUtc}
-                onToggleReminder={(id) => void toggleReminder(id)}
-                onOpenMatch={(m) => setMediaViewer({ kind: 'match', match: m })}
-              />
-            ))}
+          <div className="space-y-8">
+            {followedTeamCatalog.length === 0 ? (
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-[#0e1727]/85 dark:shadow-none">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-start gap-3.5">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-[#0f7a06] dark:border-[#39ff14]/30 dark:bg-[#39ff14]/10 dark:text-[#39ff14]">
+                      <Users size={20} />
+                    </span>
+                    <div>
+                      <h3 className="text-base font-bold text-[#0b1220] dark:text-white">
+                        Follow your favourite teams
+                      </h3>
+                      <p className="mt-1 max-w-xl text-xs leading-relaxed text-slate-600 sm:text-sm dark:text-white/60">
+                        Pick any club, national side, or athlete from live and
+                        scheduled SPORTIVRA events below to track their fixtures
+                        and results in one place.
+                      </p>
+                    </div>
+                  </div>
+                  {!user && (
+                    <button
+                      type="button"
+                      onClick={() => setAuthModalMode('signin')}
+                      className="rounded-full border border-slate-300 bg-slate-50 px-4 py-2 text-xs font-bold text-[#0b1220] transition hover:border-[#0f7a06] dark:border-white/15 dark:bg-white/5 dark:text-white dark:hover:border-[#39ff14]"
+                    >
+                      Sign in to sync across devices
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {followedTeamCatalog.map((team) => {
+                    const live = team.liveMatch
+                    const nextUpcoming = team.upcomingMatches[0] ?? null
+                    const latestFinished = team.finishedMatches[0] ?? null
+
+                    return (
+                      <article
+                        key={team.name}
+                        className="flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-[#0f7a06]/45 dark:border-white/10 dark:bg-[#0e1727] dark:shadow-none dark:hover:border-[#39ff14]/45"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-100 text-base font-black text-[#0b1220] dark:border-white/15 dark:bg-white/8 dark:text-white">
+                              {team.name[0]}
+                            </span>
+                            <div className="min-w-0">
+                              <h3 className="truncate text-base font-bold text-[#0b1220] dark:text-white">
+                                {team.name}
+                              </h3>
+                              <p className="truncate text-xs text-slate-500 dark:text-white/55">
+                                {team.sportIcon} {team.sportName} • {team.league}
+                              </p>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => toggleFollowTeam(team.name)}
+                            aria-pressed="true"
+                            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[#0f7a06] bg-[#39ff14] px-3.5 py-1.5 text-xs font-bold text-[#0b1220] transition hover:bg-[#5cff3d] dark:border-[#39ff14] dark:hover:bg-[#a8ff9d]"
+                          >
+                            <Check size={13} /> Following
+                          </button>
+                        </div>
+
+                        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs dark:border-white/8 dark:bg-[#0b1220]/70">
+                          {live ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setMediaViewer({ kind: 'match', match: live })
+                              }
+                              className="flex w-full items-center justify-between gap-2 text-left"
+                            >
+                              <span className="inline-flex items-center gap-1.5 font-bold text-[#c81e28] dark:text-[#ff8b91]">
+                                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#ff3b45]" />
+                                LIVE {live.match_clock ?? ''}
+                              </span>
+                              <span className="truncate font-semibold text-[#0b1220] dark:text-white">
+                                {live.home_team} {live.home_score} -{' '}
+                                {live.away_score} {live.away_team}
+                              </span>
+                            </button>
+                          ) : nextUpcoming ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setMediaViewer({
+                                  kind: 'match',
+                                  match: nextUpcoming,
+                                })
+                              }
+                              className="flex w-full items-center justify-between gap-2 text-left"
+                            >
+                              <span className="font-bold text-[#0f7a06] dark:text-[#39ff14]">
+                                {formatMatchDayLabel(
+                                  nextUpcoming.kickoff_at,
+                                  serverDateUtc,
+                                )}{' '}
+                                {formatUtcTime(nextUpcoming.kickoff_at)}
+                              </span>
+                              <span className="truncate font-semibold text-[#0b1220] dark:text-white">
+                                {nextUpcoming.home_team} vs{' '}
+                                {nextUpcoming.away_team}
+                              </span>
+                            </button>
+                          ) : latestFinished ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setMediaViewer({
+                                  kind: 'match',
+                                  match: latestFinished,
+                                })
+                              }
+                              className="flex w-full items-center justify-between gap-2 text-left"
+                            >
+                              <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold text-slate-700 dark:bg-white/10 dark:text-white/75">
+                                {latestFinished.match_clock ?? 'FT'}
+                              </span>
+                              <span className="truncate font-semibold text-[#0b1220] dark:text-white">
+                                {latestFinished.home_team}{' '}
+                                {latestFinished.home_score} -{' '}
+                                {latestFinished.away_score}{' '}
+                                {latestFinished.away_team}
+                              </span>
+                            </button>
+                          ) : (
+                            <span className="text-slate-500 dark:text-white/50">
+                              No active fixtures recorded yet.
+                            </span>
+                          )}
+                        </div>
+                      </article>
+                    )
+                  })}
+                </div>
+
+                {/* Upcoming Matches & Results for Followed Teams */}
+                <div className="space-y-6">
+                  <div>
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <h3 className="text-base font-bold text-[#0b1220] dark:text-white">
+                        Upcoming matches for your teams (
+                        {followedTeamUpcomingMatches.length})
+                      </h3>
+                    </div>
+                    {followedTeamUpcomingMatches.length === 0 ? (
+                      <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-xs text-slate-600 shadow-sm dark:border-white/10 dark:bg-[#0e1727]/60 dark:text-white/60 dark:shadow-none">
+                        No upcoming matches currently scheduled for your
+                        followed teams.
+                      </div>
+                    ) : (
+                      <div className="grid gap-4 md:grid-cols-3">
+                        {followedTeamUpcomingMatches.map((match) => (
+                          <MatchCard
+                            key={match.id}
+                            match={match}
+                            isReminded={remindedIds.has(match.id)}
+                            isSaving={savingReminderId === match.id}
+                            favoriteTeams={favoriteTeamSet}
+                            serverDateUtc={serverDateUtc}
+                            onToggleReminder={(id) => void toggleReminder(id)}
+                            onToggleFollowTeam={toggleFollowTeam}
+                            onOpenMatch={(m) =>
+                              setMediaViewer({ kind: 'match', match: m })
+                            }
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <h3 className="text-base font-bold text-[#0b1220] dark:text-white">
+                        Live &amp; available results for your teams (
+                        {followedTeamResultMatches.length})
+                      </h3>
+                    </div>
+                    {followedTeamResultMatches.length === 0 ? (
+                      <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-xs text-slate-600 shadow-sm dark:border-white/10 dark:bg-[#0e1727]/60 dark:text-white/60 dark:shadow-none">
+                        No live games or completed results recorded yet for your
+                        followed teams.
+                      </div>
+                    ) : (
+                      <div className="grid gap-3 md:grid-cols-2">
+                        {followedTeamResultMatches.map((match) => (
+                          <article
+                            key={match.id}
+                            className="flex flex-col justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-[#0f7a06]/50 sm:flex-row sm:items-center dark:border-white/10 dark:bg-[#0e1727] dark:shadow-none dark:hover:border-[#39ff14]/50"
+                          >
+                            <div className="min-w-0 space-y-1">
+                              <div className="flex flex-wrap items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-white/50">
+                                <span>
+                                  {match.sport?.icon} {match.sport?.name}
+                                </span>
+                                <span>•</span>
+                                <span className="truncate">{match.league}</span>
+                                {match.status === 'live' ? (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-[#ff3b45] px-2 py-0.5 text-white">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                                    LIVE {match.match_clock ?? ''}
+                                  </span>
+                                ) : (
+                                  <span className="rounded bg-slate-200 px-2 py-0.5 text-slate-700 dark:bg-white/10 dark:text-white/80">
+                                    {match.match_clock ?? 'FT'}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-sm font-bold text-[#0b1220] sm:text-base dark:text-white">
+                                {match.home_team}{' '}
+                                <span className="mx-1.5 font-black text-[#0f7a06] dark:text-[#39ff14]">
+                                  {match.home_score} — {match.away_score}
+                                </span>{' '}
+                                {match.away_team}
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setMediaViewer({ kind: 'match', match })
+                              }
+                              className="inline-flex min-h-10 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[#39ff14] px-4 text-xs font-bold text-[#0b1220] transition hover:bg-[#5cff3d] dark:hover:bg-[#a8ff9d]"
+                            >
+                              <Play size={13} fill="currentColor" />{' '}
+                              {match.status === 'live'
+                                ? 'Watch live'
+                                : 'Match details'}
+                            </button>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Discover & Follow Teams Directory (always open when 0 teams followed, or toggled via Manage teams) */}
+            {(favoriteTeams.length === 0 || teamBrowserOpen) && (
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-[#0e1727]/85 dark:shadow-none">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <SlidersHorizontal
+                      size={16}
+                      className="text-[#0f7a06] dark:text-[#39ff14]"
+                    />
+                    <h3 className="text-base font-bold text-[#0b1220] dark:text-white">
+                      Discover teams from SPORTIVRA competitions
+                    </h3>
+                  </div>
+
+                  <div className="flex w-full items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 sm:w-72 dark:border-white/12 dark:bg-[#0b1220]">
+                    <Search
+                      size={15}
+                      className="text-slate-400 dark:text-white/40"
+                    />
+                    <input
+                      type="text"
+                      value={teamSearchQuery}
+                      onChange={(e) => setTeamSearchQuery(e.target.value)}
+                      placeholder="Filter teams or leagues..."
+                      className="h-10 w-full bg-transparent text-xs text-[#0b1220] outline-none placeholder:text-slate-400 dark:text-white dark:placeholder:text-white/35"
+                    />
+                    {teamSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setTeamSearchQuery('')}
+                        aria-label="Clear team search"
+                        className="text-slate-400 hover:text-[#0b1220] dark:text-white/45 dark:hover:text-white"
+                      >
+                        <X size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTeamSportFilter('all')}
+                    className={`rounded-full border px-3.5 py-1.5 text-xs font-bold transition ${
+                      teamSportFilter === 'all'
+                        ? 'border-[#0f7a06] bg-[#39ff14] text-[#0b1220] dark:border-[#39ff14]'
+                        : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-[#0f7a06]/50 dark:border-white/12 dark:bg-[#0b1220] dark:text-white/75 dark:hover:border-[#39ff14]/50'
+                    }`}
+                  >
+                    All sports
+                  </button>
+                  {sports.map((sport) => (
+                    <button
+                      key={sport.id}
+                      type="button"
+                      onClick={() => setTeamSportFilter(sport.id)}
+                      className={`rounded-full border px-3.5 py-1.5 text-xs font-bold transition ${
+                        teamSportFilter === sport.id
+                          ? 'border-[#0f7a06] bg-[#39ff14] text-[#0b1220] dark:border-[#39ff14]'
+                          : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-[#0f7a06]/50 dark:border-white/12 dark:bg-[#0b1220] dark:text-white/75 dark:hover:border-[#39ff14]/50'
+                      }`}
+                    >
+                      {sport.icon} {sport.name}
+                    </button>
+                  ))}
+                </div>
+
+                {filteredDiscoveryTeams.length === 0 ? (
+                  <p className="mt-5 text-xs text-slate-500 dark:text-white/55">
+                    No teams match your current filter.
+                  </p>
+                ) : (
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {filteredDiscoveryTeams.map((team) => {
+                      const isFollowing = favoriteTeamSet.has(team.name)
+                      const statusLabel = team.liveMatch
+                        ? `Live • ${team.liveMatch.home_score}-${team.liveMatch.away_score}`
+                        : team.upcomingMatches[0]
+                          ? `Next • ${formatMatchDayLabel(team.upcomingMatches[0].kickoff_at, serverDateUtc)}`
+                          : team.finishedMatches[0]
+                            ? `Result • ${team.finishedMatches[0].home_score}-${team.finishedMatches[0].away_score}`
+                            : 'Active squad'
+
+                      return (
+                        <div
+                          key={team.name}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 dark:border-white/10 dark:bg-[#0b1220]"
+                        >
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-xs font-black text-[#0b1220] dark:border-white/15 dark:bg-white/8 dark:text-white">
+                              {team.name[0]}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-bold text-[#0b1220] dark:text-white">
+                                {team.name}
+                              </p>
+                              <p className="truncate text-[11px] text-slate-500 dark:text-white/50">
+                                {team.sportIcon} {team.sportName} • {statusLabel}
+                              </p>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => toggleFollowTeam(team.name)}
+                            aria-pressed={isFollowing}
+                            className={`inline-flex min-h-9 shrink-0 items-center gap-1 rounded-full border px-3.5 text-xs font-bold transition ${
+                              isFollowing
+                                ? 'border-[#0f7a06] bg-[#39ff14] text-[#0b1220] hover:bg-[#5cff3d] dark:border-[#39ff14] dark:hover:bg-[#a8ff9d]'
+                                : 'border-slate-300 bg-white text-[#0b1220] hover:border-[#0f7a06] hover:bg-[#39ff14]/15 dark:border-white/15 dark:bg-white/5 dark:text-white dark:hover:border-[#39ff14]/60 dark:hover:bg-[#39ff14]/15'
+                            }`}
+                          >
+                            {isFollowing ? (
+                              <>
+                                <Check size={12} /> Following
+                              </>
+                            ) : (
+                              <>
+                                <Plus size={12} /> Follow
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
+      </section>
+
+      {/* SECTION 4: Upcoming Matches */}
+      <section
+        id="schedule"
+        className="scroll-mt-20 border-t border-slate-200/80 px-5 py-16 lg:px-8 dark:border-white/6"
+      >
+        <div className="mx-auto max-w-7xl">
+          <SectionHeading
+            eyebrow="Plan your watchlist"
+            title="Upcoming matches"
+            badge={
+              favoriteSportIds.length > 0 && !selectedSport ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#0f7a06] dark:border-[#39ff14]/35 dark:bg-[#39ff14]/10 dark:text-[#39ff14]">
+                  <Sparkles size={11} /> Prioritised for your sports
+                </span>
+              ) : undefined
+            }
+            action="View full schedule"
+            onAction={() => void handleOpenMatchCenter('upcoming')}
+          />
+          {catalogLoading ? (
+            <div className="grid gap-4 md:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, idx) => (
+                <div
+                  key={idx}
+                  className="min-h-[248px] animate-pulse rounded-2xl border border-slate-200 bg-slate-200/70 dark:border-white/10 dark:bg-[#1f2937]/40"
+                />
+              ))}
+            </div>
+          ) : upcomingMatches.length === 0 ? (
+            <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm dark:border-white/10 dark:bg-[#1f2937]/40 dark:shadow-none">
+              <p className="text-sm text-slate-600 dark:text-white/60">
+                No upcoming {selectedSport ? `${selectedSport.name} ` : ''}
+                matches are scheduled right now.
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-3">
+              {upcomingMatches.map((match) => (
+                <MatchCard
+                  key={match.id}
+                  match={match}
+                  isReminded={remindedIds.has(match.id)}
+                  isSaving={savingReminderId === match.id}
+                  favoriteTeams={favoriteTeamSet}
+                  serverDateUtc={serverDateUtc}
+                  onToggleReminder={(id) => void toggleReminder(id)}
+                  onToggleFollowTeam={toggleFollowTeam}
+                  onOpenMatch={(m) => setMediaViewer({ kind: 'match', match: m })}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       </section>
 
       {/* SECTION 5: Featured Highlights */}
       <section
         id="highlights"
-        className="scroll-mt-20 border-y border-white/6 bg-[#0e1727] px-5 py-16 lg:px-8"
+        className="scroll-mt-20 border-y border-slate-200 bg-white px-5 py-16 lg:px-8 dark:border-white/6 dark:bg-[#0e1727]"
       >
         <div className="mx-auto max-w-7xl">
           <SectionHeading
             eyebrow="Catch up"
             title="Featured highlights"
+            badge={
+              favoriteSportIds.length > 0 && !selectedSport ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#0f7a06] dark:border-[#39ff14]/35 dark:bg-[#39ff14]/10 dark:text-[#39ff14]">
+                  <Sparkles size={11} /> Prioritised for your sports
+                </span>
+              ) : undefined
+            }
             action="View all highlights"
             onAction={() => setArchiveMode('highlights')}
           />
           {catalogLoading ? (
             <div className="grid gap-4 md:grid-cols-2">
-              <div className="min-h-[248px] animate-pulse rounded-2xl border border-white/10 bg-[#1f2937]/40" />
-              <div className="min-h-[248px] animate-pulse rounded-2xl border border-white/10 bg-[#1f2937]/40" />
+              <div className="min-h-[248px] animate-pulse rounded-2xl border border-slate-200 bg-slate-200/70 dark:border-white/10 dark:bg-[#1f2937]/40" />
+              <div className="min-h-[248px] animate-pulse rounded-2xl border border-slate-200 bg-slate-200/70 dark:border-white/10 dark:bg-[#1f2937]/40" />
             </div>
           ) : showcaseHighlights.length === 0 ? (
-            <div className="rounded-2xl border border-white/10 bg-[#1f2937]/40 p-8 text-center">
-              <p className="text-sm text-white/60">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-8 text-center dark:border-white/10 dark:bg-[#1f2937]/40">
+              <p className="text-sm text-slate-600 dark:text-white/60">
                 No {selectedSport ? `${selectedSport.name} ` : ''}highlights
                 published yet.
               </p>
@@ -1561,10 +2984,18 @@ export function SportivraApp({
               {showcaseHighlights.map((highlight) => (
                 <article
                   key={highlight.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() =>
                     setMediaViewer({ kind: 'highlight', highlight })
                   }
-                  className={`highlight-card group cursor-pointer ${
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setMediaViewer({ kind: 'highlight', highlight })
+                    }
+                  }}
+                  className={`highlight-card group cursor-pointer bg-[#0b1220] text-white ${
                     showcaseHighlights.length === 1 ? 'md:col-span-2' : ''
                   }`}
                 >
@@ -1617,6 +3048,13 @@ export function SportivraApp({
         <SectionHeading
           eyebrow="Beyond the scoreboard"
           title="Latest sports news"
+          badge={
+            favoriteSportIds.length > 0 && !selectedSport ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#0f7a06] dark:border-[#39ff14]/35 dark:bg-[#39ff14]/10 dark:text-[#39ff14]">
+                <Sparkles size={11} /> Prioritised for your sports
+              </span>
+            ) : undefined
+          }
           action="View all news"
           onAction={() => setArchiveMode('news')}
         />
@@ -1625,13 +3063,13 @@ export function SportivraApp({
             {Array.from({ length: 3 }).map((_, idx) => (
               <div
                 key={idx}
-                className="aspect-[1.2] animate-pulse rounded-xl border border-white/10 bg-[#1f2937]/40"
+                className="aspect-[1.2] animate-pulse rounded-xl border border-slate-200 bg-slate-200/70 dark:border-white/10 dark:bg-[#1f2937]/40"
               />
             ))}
           </div>
         ) : filteredNews.length === 0 ? (
-          <div className="rounded-2xl border border-white/10 bg-[#1f2937]/40 p-8 text-center">
-            <p className="text-sm text-white/60">
+          <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm dark:border-white/10 dark:bg-[#1f2937]/40 dark:shadow-none">
+            <p className="text-sm text-slate-600 dark:text-white/60">
               No {selectedSport ? `${selectedSport.name} ` : ''}news articles
               available yet.
             </p>
@@ -1641,8 +3079,16 @@ export function SportivraApp({
             {filteredNews.map((item) => (
               <article
                 key={item.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => setActiveArticle(item)}
-                className="group flex cursor-pointer flex-col justify-between rounded-2xl border border-white/10 bg-[#0e1727]/75 p-4 transition hover:border-[#39ff14]/45"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    setActiveArticle(item)
+                  }
+                }}
+                className="group flex cursor-pointer flex-col justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-[#0f7a06]/50 hover:shadow-md dark:border-white/10 dark:bg-[#0e1727]/75 dark:shadow-none dark:hover:border-[#39ff14]/45"
               >
                 <div>
                   <div className="relative mb-4 aspect-[16/10] overflow-hidden rounded-xl">
@@ -1655,16 +3101,16 @@ export function SportivraApp({
                       {item.category}
                     </span>
                   </div>
-                  <h3 className="text-lg font-bold leading-snug text-white transition group-hover:text-[#39ff14]">
+                  <h3 className="text-lg font-bold leading-snug text-[#0b1220] transition group-hover:text-[#0f7a06] dark:text-white dark:group-hover:text-[#39ff14]">
                     {item.title}
                   </h3>
                   {item.summary && (
-                    <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-white/55">
+                    <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-slate-600 dark:text-white/55">
                       {item.summary}
                     </p>
                   )}
                 </div>
-                <p className="mt-4 border-t border-white/8 pt-3 text-xs text-white/45">
+                <p className="mt-4 border-t border-slate-200 pt-3 text-xs text-slate-500 dark:border-white/8 dark:text-white/45">
                   {formatArticleDate(item.published_at)} &nbsp;•&nbsp;{' '}
                   {item.read_time}
                 </p>
@@ -1677,7 +3123,7 @@ export function SportivraApp({
       {/* SECTION 7: Promotional Membership Banner + Multi-Column Footer */}
       <section
         id="pricing"
-        className="relative mx-5 mb-16 scroll-mt-20 overflow-hidden rounded-3xl bg-gradient-to-r from-[#39ff14] via-[#34ea12] to-[#1aa80b] px-6 py-10 text-[#0b1220] sm:px-12 sm:py-12 lg:mx-auto lg:max-w-7xl"
+        className="relative mx-5 mb-16 scroll-mt-20 overflow-hidden rounded-3xl bg-gradient-to-r from-[#39ff14] via-[#34ea12] to-[#1aa80b] px-6 py-10 text-[#0b1220] shadow-lg sm:px-12 sm:py-12 lg:mx-auto lg:max-w-7xl dark:shadow-none"
       >
         <div className="relative z-10 max-w-xl">
           <p className="text-[11px] font-black uppercase tracking-[0.25em] text-[#0b1220]/70">
@@ -1702,24 +3148,27 @@ export function SportivraApp({
         <Trophy className="absolute -bottom-8 right-4 size-44 rotate-12 text-[#0b1220]/15 sm:right-14 sm:size-60" />
       </section>
 
-      <footer className="border-t border-white/8 bg-[#080e19] px-5 pb-10 pt-12 lg:px-8">
+      <footer className="border-t border-slate-200 bg-[#eef2f6] px-5 pb-10 pt-12 text-slate-600 lg:px-8 dark:border-white/8 dark:bg-[#080e19] dark:text-white/55">
         <div className="mx-auto max-w-7xl">
           <div className="grid grid-cols-2 gap-8 sm:grid-cols-3 lg:grid-cols-6">
             <div className="col-span-2">
               <Brand />
-              <p className="mt-3 max-w-xs text-xs leading-relaxed text-white/50">
+              <p className="mt-3 max-w-xs text-xs leading-relaxed text-slate-600 dark:text-white/50">
                 The international home for live scores, upcoming fixtures,
                 on-demand highlights, and sports stories that matter.
               </p>
             </div>
 
             <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[#0b1220] dark:text-white">
                 Product
               </h3>
-              <ul className="mt-3 space-y-2.5 text-xs text-white/55">
+              <ul className="mt-3 space-y-2.5 text-xs text-slate-600 dark:text-white/55">
                 <li>
-                  <a href="#live" className="transition hover:text-[#39ff14]">
+                  <a
+                    href="#live"
+                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
+                  >
                     Live Matches
                   </a>
                 </li>
@@ -1727,7 +3176,7 @@ export function SportivraApp({
                   <button
                     type="button"
                     onClick={() => void handleOpenMatchCenter('finished')}
-                    className="transition hover:text-[#39ff14]"
+                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
                   >
                     Scores
                   </button>
@@ -1735,7 +3184,7 @@ export function SportivraApp({
                 <li>
                   <a
                     href="#highlights"
-                    className="transition hover:text-[#39ff14]"
+                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
                   >
                     Highlights
                   </a>
@@ -1743,28 +3192,46 @@ export function SportivraApp({
                 <li>
                   <a
                     href="#schedule"
-                    className="transition hover:text-[#39ff14]"
+                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
                   >
                     Schedule
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="#my-sports"
+                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
+                  >
+                    Favourite Sports
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="#my-teams"
+                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
+                  >
+                    My Teams
                   </a>
                 </li>
               </ul>
             </div>
 
             <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[#0b1220] dark:text-white">
                 Sports
               </h3>
-              <ul className="mt-3 space-y-2.5 text-xs text-white/55">
+              <ul className="mt-3 space-y-2.5 text-xs text-slate-600 dark:text-white/55">
                 {catalogLoading ? (
                   Array.from({ length: 4 }).map((_, idx) => (
                     <li
                       key={idx}
-                      className="h-3.5 w-20 animate-pulse rounded bg-white/10"
+                      className="h-3.5 w-20 animate-pulse rounded bg-slate-300 dark:bg-white/10"
                     />
                   ))
                 ) : sports.length === 0 ? (
-                  <li className="text-white/40">No sports loaded</li>
+                  <li className="text-slate-400 dark:text-white/40">
+                    No sports loaded
+                  </li>
                 ) : (
                   sports.map((sport) => (
                     <li key={sport.id}>
@@ -1776,7 +3243,7 @@ export function SportivraApp({
                             .getElementById('live')
                             ?.scrollIntoView({ behavior: 'smooth' })
                         }}
-                        className="transition hover:text-[#39ff14]"
+                        className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
                       >
                         {sport.name}
                       </button>
@@ -1787,15 +3254,15 @@ export function SportivraApp({
             </div>
 
             <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[#0b1220] dark:text-white">
                 Company
               </h3>
-              <ul className="mt-3 space-y-2.5 text-xs text-white/55">
+              <ul className="mt-3 space-y-2.5 text-xs text-slate-600 dark:text-white/55">
                 <li>
                   <button
                     type="button"
                     onClick={() => setInfoTopic('About us')}
-                    className="transition hover:text-[#39ff14]"
+                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
                   >
                     About us
                   </button>
@@ -1804,13 +3271,16 @@ export function SportivraApp({
                   <button
                     type="button"
                     onClick={() => setInfoTopic('Careers')}
-                    className="transition hover:text-[#39ff14]"
+                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
                   >
                     Careers
                   </button>
                 </li>
                 <li>
-                  <a href="#news" className="transition hover:text-[#39ff14]">
+                  <a
+                    href="#news"
+                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
+                  >
                     Newsroom
                   </a>
                 </li>
@@ -1818,15 +3288,15 @@ export function SportivraApp({
             </div>
 
             <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[#0b1220] dark:text-white">
                 Support
               </h3>
-              <ul className="mt-3 space-y-2.5 text-xs text-white/55">
+              <ul className="mt-3 space-y-2.5 text-xs text-slate-600 dark:text-white/55">
                 <li>
                   <button
                     type="button"
                     onClick={() => setAuthModalMode(user ? 'account' : 'signin')}
-                    className="transition hover:text-[#39ff14]"
+                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
                   >
                     {user ? 'My Account' : 'Sign in'}
                   </button>
@@ -1835,7 +3305,7 @@ export function SportivraApp({
                   <button
                     type="button"
                     onClick={() => setInfoTopic('Help centre')}
-                    className="transition hover:text-[#39ff14]"
+                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
                   >
                     Help centre
                   </button>
@@ -1844,7 +3314,7 @@ export function SportivraApp({
                   <button
                     type="button"
                     onClick={() => setInfoTopic('Privacy')}
-                    className="transition hover:text-[#39ff14]"
+                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
                   >
                     Privacy policy
                   </button>
@@ -1853,7 +3323,7 @@ export function SportivraApp({
                   <button
                     type="button"
                     onClick={() => setInfoTopic('Terms')}
-                    className="transition hover:text-[#39ff14]"
+                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
                   >
                     Terms of use
                   </button>
@@ -1862,11 +3332,12 @@ export function SportivraApp({
             </div>
           </div>
 
-          <div className="mt-10 flex flex-col gap-4 border-t border-white/8 pt-6 text-xs text-white/35 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mt-10 flex flex-col gap-4 border-t border-slate-200 pt-6 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between dark:border-white/8 dark:text-white/35">
             <p>© 2026 SPORTIVRA. All rights reserved.</p>
-            <div className="flex flex-wrap items-center gap-4 text-[11px] text-white/45">
+            <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-600 dark:text-white/45">
               <span className="inline-flex items-center gap-1.5">
-                <Globe size={13} className="text-[#39ff14]" /> Web
+                <Globe size={13} className="text-[#0f7a06] dark:text-[#39ff14]" />{' '}
+                Web
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <Smartphone size={13} /> Mobile
@@ -1888,6 +3359,8 @@ export function SportivraApp({
           user={user}
           profile={profile}
           sports={sports}
+          favoriteSportIds={favoriteSportIds}
+          favoriteTeams={favoriteTeams}
           remindedMatches={remindedMatches}
           pendingReminderMessage={
             pendingReminderMatchId
@@ -1899,12 +3372,25 @@ export function SportivraApp({
             setPendingReminderMatchId(null)
           }}
           onAuthSuccess={handleAuthSuccess}
-          onProfileUpdated={(updated) => setProfile(updated)}
+          onProfileUpdated={(updated) => {
+            setProfile(updated)
+            applyPreferencesState(
+              extractPreferencesFromProfile(
+                updated,
+                validSportIds.size > 0 ? validSportIds : undefined,
+                validTeamNames.size > 0 ? validTeamNames : undefined,
+              ),
+            )
+          }}
+          onToggleFollowTeam={toggleFollowTeam}
           onRemoveReminder={handleRemoveReminderFromAccount}
           onSignedOut={() => {
             setUser(null)
             setProfile(null)
             setRemindedIds(new Set())
+            syncingGuestUserIdRef.current = null
+            lastSyncedUserIdRef.current = null
+            applyPreferencesState({ favoriteSportIds: [], favoriteTeams: [] })
             showToast('Signed out of SPORTIVRA.')
           }}
         />
@@ -1914,8 +3400,10 @@ export function SportivraApp({
         <MediaViewerModal
           item={mediaViewer}
           remindedIds={remindedIds}
+          favoriteTeams={favoriteTeamSet}
           serverDateUtc={serverDateUtc}
           onToggleReminder={toggleReminder}
+          onToggleFollowTeam={toggleFollowTeam}
           onClose={() => setMediaViewer(null)}
         />
       )}
@@ -1931,9 +3419,12 @@ export function SportivraApp({
         <MatchCenterModal
           initialTab={matchCenterTab}
           matches={matchesBySport}
+          favoriteSportIds={favoriteSportIds}
+          favoriteTeams={favoriteTeamSet}
           remindedIds={remindedIds}
           serverDateUtc={serverDateUtc}
           onToggleReminder={toggleReminder}
+          onToggleFollowTeam={toggleFollowTeam}
           onWatchMatch={(m) => {
             setMatchCenterTab(null)
             setMediaViewer({ kind: 'match', match: m })
@@ -1946,11 +3437,7 @@ export function SportivraApp({
         <CatalogArchiveModal
           mode={archiveMode}
           highlights={filteredHighlights}
-          newsArticles={
-            selectedSport
-              ? newsArticles.filter((a) => a.sport_id === selectedSport.id)
-              : newsArticles
-          }
+          newsArticles={allArchiveNews}
           onSelectHighlight={(h) => {
             setArchiveMode(null)
             setMediaViewer({ kind: 'highlight', highlight: h })
@@ -1975,17 +3462,24 @@ export function SportivraApp({
           role="status"
           className={`fixed bottom-5 right-5 z-50 flex max-w-sm items-center gap-3 rounded-xl border px-4 py-3 text-xs font-semibold shadow-2xl backdrop-blur ${
             toast.tone === 'error'
-              ? 'border-[#ff3b45]/50 bg-[#0e1727]/95 text-[#ff8b91]'
-              : 'border-[#39ff14]/45 bg-[#0e1727]/95 text-[#a8ff9d]'
+              ? 'border-red-300 bg-white text-red-700 dark:border-[#ff3b45]/50 dark:bg-[#0e1727]/95 dark:text-[#ff8b91]'
+              : 'border-emerald-300 bg-white text-emerald-900 dark:border-[#39ff14]/45 dark:bg-[#0e1727]/95 dark:text-[#a8ff9d]'
           }`}
         >
-          <Bell size={14} className="shrink-0" />
+          <Bell
+            size={14}
+            className={`shrink-0 ${
+              toast.tone === 'error'
+                ? 'text-red-600 dark:text-current'
+                : 'text-[#0f7a06] dark:text-current'
+            }`}
+          />
           <span className="flex-1">{toast.message}</span>
           <button
             type="button"
             onClick={() => setToast(null)}
             aria-label="Dismiss notification"
-            className="text-white/50 hover:text-white"
+            className="text-slate-400 hover:text-[#0b1220] dark:text-white/50 dark:hover:text-white"
           >
             <X size={14} />
           </button>

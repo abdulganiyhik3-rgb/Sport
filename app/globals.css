@@ -14,6 +14,15 @@
   --radius: .75rem;
 }
 
+html.light {
+  color-scheme: light;
+  --background: #f5f7fa;
+  --foreground: #0b1220;
+  --card: #ffffff;
+  --card-foreground: #0b1220;
+  --border: rgba(15,23,42,.12);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -24,19 +33,37 @@
 
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
-body { margin: 0; background: #0b1220; color: #fff; font-family: Arial, Helvetica, sans-serif; }
+body { margin: 0; background: #0b1220; color: #fff; font-family: Arial, Helvetica, sans-serif; transition: background-color .2s ease, color .2s ease; }
+html.light body { background: #f5f7fa; color: #0b1220; }
 a { text-decoration: none; }
 button, a { -webkit-tap-highlight-color: transparent; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid #0f7a06;
+  outline-offset: 2px;
+}
+html.dark button:focus-visible,
+html.dark a:focus-visible,
+html.dark input:focus-visible,
+html.dark select:focus-visible {
+  outline-color: #39ff14;
+}
 
 .brand-mark { display: inline-flex; height: 34px; width: 34px; align-items: center; justify-content: center; border-radius: 10px 3px 10px 3px; background: #39ff14; color: #0b1220; font-size: 23px; font-weight: 900; font-style: italic; line-height: 1; transform: skew(-8deg); }
-.hero { min-height: 660px; }
-.match-card { border: 1px solid rgba(255,255,255,.1); background: rgba(14,23,39,.72); border-radius: 16px; padding: 20px; transition: border-color .25s, transform .25s, background .25s; }
+.hero { min-height: clamp(540px, 78vh, 660px); }
+.match-card { border: 1px solid rgba(255,255,255,.1); background: rgba(14,23,39,.72); border-radius: 16px; padding: 20px; transition: border-color .25s, transform .25s, background .25s, box-shadow .25s; }
 .match-card:hover { border-color: rgba(57,255,20,.45); background: rgba(31,41,55,.78); transform: translateY(-3px); }
-.sport-tile { position: relative; min-height: 172px; overflow: hidden; border: 1px solid rgba(255,255,255,.09); border-radius: 16px; padding: 17px; transition: transform .25s, border-color .25s; }
+html.light .match-card { border-color: rgba(15,23,42,.1); background: #ffffff; box-shadow: 0 1px 3px rgba(15,23,42,.06); }
+html.light .match-card:hover { border-color: rgba(15,122,6,.45); background: #ffffff; box-shadow: 0 10px 24px rgba(15,23,42,.08); }
+.sport-tile { position: relative; min-height: 172px; overflow: hidden; border: 1px solid rgba(255,255,255,.09); border-radius: 16px; padding: 17px; transition: transform .25s, border-color .25s, box-shadow .25s; }
 .sport-tile::after { content: ''; position: absolute; inset: auto -25px -45px auto; height: 110px; width: 110px; border-radius: 999px; background: rgba(255,255,255,.05); pointer-events: none; }
 .sport-tile:hover { transform: translateY(-4px); border-color: rgba(57,255,20,.5); }
+html.light .sport-tile { border-color: rgba(15,23,42,.1); background-image: linear-gradient(145deg, #ffffff 0%, #f1f5f9 100%); box-shadow: 0 1px 3px rgba(15,23,42,.05); }
+html.light .sport-tile::after { background: rgba(57,255,20,.14); }
+html.light .sport-tile:hover { border-color: rgba(15,122,6,.55); box-shadow: 0 10px 24px rgba(15,23,42,.08); }
 .highlight-card { position: relative; min-height: 248px; overflow: hidden; border-radius: 16px; border: 1px solid rgba(255,255,255,.1); }
 .highlight-card img { position: absolute; inset: 0; height: 100%; width: 100%; object-fit: cover; transition: transform .6s; }
 .highlight-card:hover img { transform: scale(1.05); }
+html.light .highlight-card { border-color: rgba(15,23,42,.12); box-shadow: 0 4px 16px rgba(15,23,42,.08); }
 .live-feature { border: 1px solid rgba(255,255,255,.1); }
-@media (max-width: 639px) { .hero { min-height: 600px; } .highlight-card { min-height: 220px; } }
+html.light .live-feature { border-color: rgba(15,23,42,.12); box-shadow: 0 8px 24px rgba(15,23,42,.1); }
+@media (max-width: 639px) { .hero { min-height: 540px; } .highlight-card { min-height: 220px; } }
