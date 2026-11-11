@@ -5,7 +5,8 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: 'SPORTIVRA — Every Sport. Every Moment.',
-  description: 'SPORTIVRA is the premium international home for live sports, highlights, scores and stories.',
+  description:
+    'SPORTIVRA is the premium international home for live sports, highlights, scores, and stories.',
   generator: 'v0.app',
   icons: {
     icon: [

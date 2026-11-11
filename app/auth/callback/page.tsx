@@ -131,7 +131,9 @@ export default function AuthCallbackPage() {
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#ff3b45]/15 text-[#c81e28] dark:text-[#ff8b91]">
               <ShieldAlert size={22} />
             </div>
-            <h1 className="text-xl font-bold">Verification could not finish</h1>
+            <h1 className="text-xl font-bold">
+              Verification could not be completed
+            </h1>
             <p className="text-sm text-slate-600 dark:text-white/65">
               {errorMsg}
             </p>
@@ -150,7 +152,7 @@ export default function AuthCallbackPage() {
             />
             <h1 className="text-xl font-bold">Verifying your account</h1>
             <p className="text-sm text-slate-600 dark:text-white/60">
-              Completing verification with Supabase...
+              Completing your account verification...
             </p>
           </div>
         )}

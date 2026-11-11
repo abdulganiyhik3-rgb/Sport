@@ -41,7 +41,7 @@ import { prioritiseBySports } from '@/lib/sportivra/personalisation'
 function formatAuthError(message: string): string {
   const lower = message.toLowerCase()
   if (lower.includes('rate limit') || lower.includes('too many requests')) {
-    return 'Email sending rate limit reached (Supabase built-in mail allows 2 emails/hour without custom SMTP). Please wait a few minutes or configure custom SMTP in Supabase.'
+    return 'Email sending rate limit reached. Please wait a few minutes before requesting another verification email.'
   }
   return message
 }
@@ -291,7 +291,7 @@ export function AuthAccountModal({
       }
 
       setInfoMsg(
-        `Password reset instructions sent to ${cleanEmail}. Please check your inbox.`,
+        `Password reset instructions have been sent to ${cleanEmail}. Please check your inbox.`,
       )
     } catch (err) {
       setErrorMsg(
@@ -351,7 +351,7 @@ export function AuthAccountModal({
         setErrorMsg(formatAuthError(error.message))
       } else {
         setInfoMsg(
-          `A new confirmation link was sent to ${targetEmail}. Please check your inbox.`,
+          `A new confirmation link has been sent to ${targetEmail}. Please check your inbox.`,
         )
       }
     } catch (err) {
@@ -593,7 +593,7 @@ export function AuthAccountModal({
                     <p className="mt-1 text-xs text-slate-600 dark:text-white/55">
                       {tier === 'free'
                         ? 'Scores, schedule, reminders & news'
-                        : 'Full access readiness & ad-free profile'}
+                        : 'Full member profile & personalised feed'}
                     </p>
                   </button>
                 ))}
@@ -609,7 +609,7 @@ export function AuthAccountModal({
                 {loading ? 'Saving...' : 'Save profile'}
               </button>
               <span className="text-[11px] text-slate-500 dark:text-white/50">
-                Saves your name, favourite sports &amp; plan to Supabase
+                Saves your name, favourite sports, and plan to your account.
               </span>
             </div>
           </form>
@@ -666,8 +666,8 @@ export function AuthAccountModal({
             </h3>
             {remindedMatches.length === 0 ? (
               <p className="text-xs text-slate-500 dark:text-white/50">
-                No match reminders saved yet. Click &ldquo;Remind&rdquo; on any
-                upcoming match to save it here.
+                No match reminders saved yet. Select &ldquo;Remind me&rdquo; on
+                any upcoming match to save it here.
               </p>
             ) : (
               <div className="space-y-2">
@@ -797,8 +797,8 @@ export function AuthAccountModal({
         {mode === 'forgot' ? (
           <form onSubmit={handleResetRequest} className="space-y-4">
             <p className="text-xs leading-relaxed text-slate-600 dark:text-white/60">
-              Enter your registered email address and we&apos;ll send a link to
-              reset your password.
+              Enter your registered email address and we&apos;ll send you a link
+              to reset your password.
             </p>
             <div>
               <label className={labelClass}>Email address</label>
@@ -990,7 +990,7 @@ function StreamPlayer({
         hls.on(Hls.Events.ERROR, (_event, data) => {
           if (data.fatal) {
             setPlaybackError(
-              'Unable to load this stream URL. Verify CORS and stream availability.',
+              'Unable to load this stream right now. Please check your connection and try again.',
             )
           }
         })
@@ -1105,13 +1105,13 @@ export function MediaViewerModal({
               </div>
               <p className="text-sm font-bold text-white">
                 {isMatch
-                  ? 'Broadcast Stream Unavailable'
-                  : 'Highlight Video Unavailable'}
+                  ? 'Broadcast stream unavailable'
+                  : 'Highlight video unavailable'}
               </p>
               <p className="mt-2 max-w-md text-xs leading-relaxed text-white/70">
                 {isMatch
-                  ? 'A licensed broadcast URL has not been attached to this event yet. When a legitimate MP4 or HLS stream URL is configured, playback starts automatically in this player.'
-                  : 'A licensed video URL has not been attached to this highlight yet. When a legitimate MP4 or HLS video URL is configured, playback starts automatically in this player.'}
+                  ? 'A broadcast stream is not yet attached to this event. Once a licensed stream is available, playback will start automatically here.'
+                  : 'A highlight video is not yet attached to this clip. Once a licensed video is available, playback will start automatically here.'}
               </p>
             </div>
           </div>
@@ -1295,8 +1295,8 @@ export function MatchCenterModal({
   return (
     <ModalShell
       onClose={onClose}
-      eyebrow="Match Center"
-      title="Live, Schedule & Final Scores"
+      eyebrow="Match Centre"
+      title="Live Matches, Schedule & Final Scores"
       maxWidth="max-w-3xl"
     >
       <div className="space-y-5">
@@ -1326,7 +1326,7 @@ export function MatchCenterModal({
 
         {filtered.length === 0 ? (
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-600 dark:border-white/10 dark:bg-[#0b1220] dark:text-white/55">
-            No matches currently listed in this view.
+            No matches are currently listed in this view.
           </div>
         ) : (
           <div className="space-y-3">
@@ -1417,7 +1417,7 @@ export function MatchCenterModal({
                         onClick={() => onWatchMatch(match)}
                         className="flex min-h-10 items-center gap-1.5 rounded-full bg-[#39ff14] px-4 text-xs font-bold text-[#0b1220] transition hover:bg-[#5cff3d] dark:hover:bg-[#a8ff9d]"
                       >
-                        <Play size={13} fill="currentColor" /> Open viewer
+                        <Play size={13} fill="currentColor" /> View match
                       </button>
                     )}
                   </div>
@@ -1456,7 +1456,7 @@ export function CatalogArchiveModal({
       {mode === 'highlights' ? (
         highlights.length === 0 ? (
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-600 dark:border-white/10 dark:bg-[#0b1220] dark:text-white/55">
-            No highlights available for this selection yet.
+            No highlights are available for this selection yet.
           </div>
         ) : (
         <div className="grid gap-4 sm:grid-cols-2">
@@ -1499,7 +1499,7 @@ export function CatalogArchiveModal({
         )
       ) : newsArticles.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-600 dark:border-white/10 dark:bg-[#0b1220] dark:text-white/55">
-          No sports news articles available for this selection yet.
+          No sports news articles are available for this selection yet.
         </div>
       ) : (
         <div className="space-y-3">
@@ -1550,26 +1550,34 @@ export function InfoPageModal({
   topic: 'About us' | 'Careers' | 'Help centre' | 'Privacy' | 'Terms'
   onClose: () => void
 }) {
+  const modalTitles: Record<typeof topic, string> = {
+    'About us': 'About us',
+    Careers: 'Careers',
+    'Help centre': 'Help centre',
+    Privacy: 'Privacy policy',
+    Terms: 'Terms of use',
+  }
+
   const copyMap: Record<typeof topic, { subtitle: string; body: string }> = {
     'About us': {
       subtitle: 'Every sport. Every moment.',
-      body: 'SPORTIVRA brings live scores, upcoming match schedules, curated highlights, and editorial coverage into a single international sports platform powered by Supabase.',
+      body: 'SPORTIVRA brings live scores, upcoming match schedules, curated highlights, and editorial coverage together in a single international sports platform.',
     },
     Careers: {
-      subtitle: 'Build the future of sports entertainment',
+      subtitle: 'Build the future of sports entertainment.',
       body: 'We collaborate with engineers, sports editors, and data specialists focused on fast real-time match experiences and clean cross-device design.',
     },
     'Help centre': {
-      subtitle: 'Account, reminders & email verification',
-      body: 'Sign up with email and password, verify your email confirmation link, and use Match Reminders to save upcoming fixtures directly to your SPORTIVRA account.',
+      subtitle: 'Account, reminders & email verification.',
+      body: 'Sign up with your email and password, confirm your verification link, and use Remind me on any upcoming match to save fixtures directly to your SPORTIVRA account.',
     },
     Privacy: {
-      subtitle: 'Row-level security & data protection',
-      body: 'Your account profile and match reminders are stored in Supabase PostgreSQL with Row Level Security policies restricting read and write access strictly to your authenticated user ID.',
+      subtitle: 'Row-level security & data protection.',
+      body: 'Your account profile and match reminders are stored securely in PostgreSQL with Row Level Security policies restricting read and write access strictly to your signed-in account.',
     },
     Terms: {
-      subtitle: 'Platform usage & broadcast rights',
-      body: 'SPORTIVRA displays live metadata and licensed stream placeholders. Video and stream players activate only when legitimate media URLs are configured.',
+      subtitle: 'Platform usage & broadcast rights.',
+      body: 'SPORTIVRA displays live match metadata and licensed broadcast placeholders. Video and stream players activate only when legitimate media URLs are configured.',
     },
   }
 
@@ -1577,7 +1585,7 @@ export function InfoPageModal({
     <ModalShell
       onClose={onClose}
       eyebrow="SPORTIVRA"
-      title={topic}
+      title={modalTitles[topic]}
       maxWidth="max-w-lg"
     >
       <div className="space-y-3">

@@ -88,13 +88,13 @@ const sportSubtitles: Record<string, string> = {
   football: 'Matches, leagues & cups',
   basketball: 'NBA, EuroLeague & more',
   tennis: 'Grand Slams & ATP/WTA',
-  cricket: 'T20, ODI & international',
+  cricket: 'T20, ODI & internationals',
   boxing: 'World title bouts & PPV',
   motorsport: 'Grand Prix & trackside',
 }
 
 function getSportSubtitle(slug: string): string {
-  return sportSubtitles[slug] ?? 'Live fixtures & highlights'
+  return sportSubtitles[slug] ?? 'Live matches & highlights'
 }
 
 function SportLineIcon({
@@ -584,7 +584,7 @@ export function SportivraApp({
           setProfile(savedProfile)
         }
         applyPreferencesState(merged)
-        showToast('Saved your personalised teams & sports to your account.')
+        showToast('Saved your personalised teams and sports to your account.')
       } finally {
         syncingGuestUserIdRef.current = null
       }
@@ -660,7 +660,7 @@ export function SportivraApp({
       setCatalogError(fresh.loadError)
       showToast(`Could not load SPORTIVRA data: ${fresh.loadError}`, 'error')
     } else {
-      showToast('SPORTIVRA live catalog updated.')
+      showToast('SPORTIVRA live catalogue updated.')
     }
   }, [showToast])
 
@@ -1430,7 +1430,7 @@ export function SportivraApp({
                   autoFocus
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search sports, teams, players, news..."
+                  placeholder="Search sports, teams, players, or news..."
                   className="h-12 w-full bg-transparent text-base text-[#0b1220] outline-none placeholder:text-slate-400 dark:text-white dark:placeholder:text-white/35"
                 />
                 {searchQuery && (
@@ -1489,7 +1489,7 @@ export function SportivraApp({
                         size={14}
                         className="animate-spin text-[#0f7a06] dark:text-[#39ff14]"
                       />
-                      Searching SPORTIVRA database...
+                      Searching SPORTIVRA...
                     </div>
                   ) : searchError ? (
                     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs text-red-700 dark:border-[#ff3b45]/35 dark:bg-[#ff3b45]/10 dark:text-[#ff8b91]">
@@ -1508,8 +1508,8 @@ export function SportivraApp({
                     searchResults.highlights.length === 0 &&
                     searchResults.newsArticles.length === 0 ? (
                     <p className="text-xs text-slate-500 dark:text-white/55">
-                      No matching sports, fixtures, highlights, or articles found for
-                      &ldquo;{searchQuery.trim()}&rdquo;.
+                      No matching sports, matches, highlights, or articles were
+                      found for &ldquo;{searchQuery.trim()}&rdquo;.
                     </p>
                   ) : (
                     searchResults && (
@@ -1669,7 +1669,7 @@ export function SportivraApp({
                   )}
                   {item.id === 'my-teams' && favoriteTeams.length > 0 && (
                     <span className="rounded-full bg-[#39ff14]/25 px-2 py-0.5 text-[10px] font-black text-[#0f7a06] dark:bg-[#39ff14]/20 dark:text-[#39ff14]">
-                      {favoriteTeams.length} Followed
+                      {favoriteTeams.length} following
                     </span>
                   )}
                 </a>
@@ -1697,7 +1697,8 @@ export function SportivraApp({
                   }}
                   className="flex min-h-11 items-center gap-2 rounded-full bg-[#39ff14] px-5 text-xs font-bold text-[#0b1220]"
                 >
-                  <UserIcon size={14} /> Account ({remindedIds.size} reminders)
+                  <UserIcon size={14} /> Account ({remindedIds.size}{' '}
+                  {remindedIds.size === 1 ? 'reminder' : 'reminders'})
                 </button>
               ) : (
                 <>
@@ -1730,26 +1731,42 @@ export function SportivraApp({
 
       {/* SECTION 1: Hero + Integrated Live Scoreboard Ticker Strip */}
       <section className="hero relative flex flex-col justify-between overflow-hidden">
-        <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=2200&q=85')] bg-cover bg-center" />
-        <div className="absolute inset-0 bg-gradient-to-r from-[#0b1220] via-[#0b1220]/85 to-[#0b1220]/20" />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#0b1220] via-[#0b1220]/30 to-[#0b1220]/60" />
+        <picture className="pointer-events-none absolute inset-0 block h-full w-full">
+          <source
+            media="(max-width: 767px)"
+            srcSet="/images/hero-multi-sport-mobile.webp"
+            type="image/webp"
+          />
+          <source srcSet="/images/hero-multi-sport.webp" type="image/webp" />
+          <img
+            src="/images/hero-multi-sport.jpg"
+            alt="Multi-sport international stadium featuring football in the centre, basketball on the left, and tennis and cricket on the right"
+            loading="eager"
+            fetchPriority="high"
+            decoding="async"
+            className="h-full w-full object-cover object-[46%_22%] sm:object-[50%_22%] lg:object-[54%_20%]"
+          />
+        </picture>
+        <div className="hero-scrim-light" aria-hidden="true" />
+        <div className="hero-scrim-dark" aria-hidden="true" />
 
         <div className="relative mx-auto flex w-full max-w-7xl flex-1 flex-col justify-end px-5 pb-8 pt-16 sm:pb-10 sm:pt-20 lg:px-8">
           <div className="max-w-2xl">
-            <div className="mb-5 flex items-center gap-3 text-[11px] font-bold uppercase tracking-[0.25em] text-[#39ff14]">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-[#39ff14]" />{' '}
+            <div className="mb-5 flex items-center gap-3 text-[11px] font-bold uppercase tracking-[0.25em] text-[#0f7a06] dark:text-[#39ff14]">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-[#0f7a06] dark:bg-[#39ff14]" />{' '}
               The world of sport, in one place
             </div>
-            <h1 className="max-w-xl text-4xl font-black leading-[0.98] tracking-[-0.04em] text-white sm:text-6xl lg:text-7xl">
+            <h1 className="max-w-xl text-4xl font-black leading-[0.98] tracking-[-0.04em] text-[#0b1220] sm:text-6xl lg:text-7xl dark:text-white">
               ALL SPORTS.
               <br />
-              <span className="text-[#39ff14]">LIVE</span> AND
+              <span className="text-[#0f7a06] dark:text-[#39ff14]">LIVE</span>{' '}
+              AND
               <br />
               ON DEMAND.
             </h1>
-            <p className="mt-4 max-w-lg text-sm leading-6 text-white/80 sm:mt-5 sm:text-base sm:leading-7">
-              Watch live fixtures, check final scores, set kick-off reminders,
-              and follow your favourite teams and sports — all in one place.
+            <p className="mt-4 max-w-lg text-sm font-medium leading-6 text-slate-700 sm:mt-5 sm:text-base sm:leading-7 dark:font-normal dark:text-white/85">
+              Watch live sports, check final scores, set kick-off reminders, and
+              follow your favourite teams and sports — all in one place.
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
               <button
@@ -1761,24 +1778,27 @@ export function SportivraApp({
                     void handleOpenMatchCenter('live')
                   }
                 }}
-                className="flex min-h-12 items-center gap-2 rounded-full bg-[#39ff14] px-6 text-sm font-bold text-[#0b1220] transition hover:scale-[1.02] hover:bg-[#a8ff9d]"
+                className="flex min-h-12 items-center gap-2 rounded-full bg-[#128a07] px-6 text-sm font-bold text-white shadow-md shadow-emerald-950/15 transition hover:scale-[1.02] hover:bg-[#0f7a06] dark:bg-[#39ff14] dark:text-[#0b1220] dark:shadow-none dark:hover:bg-[#a8ff9d]"
               >
                 <Play size={16} fill="currentColor" /> Watch now
               </button>
               <a
                 href="#sports"
-                className="flex min-h-12 items-center gap-2 rounded-full border border-white/25 bg-white/10 px-6 text-sm font-bold text-white backdrop-blur transition hover:border-[#39ff14]/60 hover:bg-white/15"
+                className="flex min-h-12 items-center gap-2 rounded-full border border-[#0f7a06]/40 bg-white/90 px-6 text-sm font-bold text-[#0f7a06] shadow-sm backdrop-blur transition hover:border-[#0f7a06] hover:bg-emerald-50 dark:border-white/25 dark:bg-white/10 dark:text-white dark:shadow-none dark:hover:border-[#39ff14]/60 dark:hover:bg-white/15"
               >
                 Explore sports <ArrowRight size={16} />
               </a>
               <a
                 href="#my-teams"
-                className="flex min-h-12 items-center gap-2 rounded-full border border-white/25 bg-[#0b1220]/55 px-5 text-sm font-bold text-white backdrop-blur transition hover:border-[#39ff14]/60 hover:bg-[#0b1220]/80"
+                className="flex min-h-12 items-center gap-2 rounded-full border border-slate-300 bg-white/90 px-5 text-sm font-bold text-[#0b1220] shadow-sm backdrop-blur transition hover:border-[#0f7a06] dark:border-white/25 dark:bg-[#0b1220]/60 dark:text-white dark:shadow-none dark:hover:border-[#39ff14]/60 dark:hover:bg-[#0b1220]/80"
               >
-                <Heart size={15} className="text-[#39ff14]" />
+                <Heart
+                  size={15}
+                  className="text-[#0f7a06] dark:text-[#39ff14]"
+                />
                 My Teams
                 {favoriteTeams.length > 0 && (
-                  <span className="rounded-full bg-[#39ff14] px-2 py-0.5 text-[10px] font-black text-[#0b1220]">
+                  <span className="rounded-full bg-[#128a07] px-2 py-0.5 text-[10px] font-black text-white dark:bg-[#39ff14] dark:text-[#0b1220]">
                     {favoriteTeams.length}
                   </span>
                 )}
@@ -1846,8 +1866,8 @@ export function SportivraApp({
             ) : (
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white/95 px-4 py-3 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-[#0e1727]/85 dark:shadow-none">
                 <p className="text-xs font-semibold text-slate-700 dark:text-white/70">
-                  No live fixtures active at the moment — check upcoming kickoffs
-                  or final results.
+                  No live matches are active at the moment — check upcoming
+                  kick-offs or final scores.
                 </p>
                 <button
                   type="button"
@@ -1944,7 +1964,7 @@ export function SportivraApp({
               <span className="font-bold text-[#0f7a06] dark:text-[#39ff14]">
                 {selectedSport.name}
               </span>{' '}
-              across live matches, final scores, schedule, highlights &amp; news
+              across live matches, final scores, schedule, highlights, and news.
             </p>
             <button
               type="button"
@@ -2173,7 +2193,7 @@ export function SportivraApp({
             <div className="h-7 flex-1 animate-pulse rounded-lg bg-slate-200 dark:bg-white/5" />
           ) : finishedMatches.length === 0 ? (
             <p className="text-xs text-slate-500 dark:text-white/55">
-              No recent final scores for{' '}
+              No recent final scores are available for{' '}
               {selectedSport ? selectedSport.name : 'this view'}.
             </p>
           ) : (
@@ -2216,7 +2236,7 @@ export function SportivraApp({
             title="Explore sports"
             badge={
               <span className="text-xs font-medium text-slate-500 dark:text-white/50">
-                Tap a sport to filter the entire page — or save favourites below
+                Select a sport to filter the page, or save your favourites below.
               </span>
             }
             action={selectedSport ? 'Show all sports' : 'All sports'}
@@ -2265,7 +2285,7 @@ export function SportivraApp({
                         <div className="flex items-center gap-1">
                           {isFav && (
                             <span className="rounded-full bg-[#39ff14] px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-[#0b1220]">
-                              Fav
+                              Saved
                             </span>
                           )}
                           <ChevronRight
@@ -2315,8 +2335,8 @@ export function SportivraApp({
                   Your favourite sports
                 </h3>
                 <p className="mt-1 text-xs leading-relaxed text-slate-600 sm:text-sm dark:text-white/60">
-                  Select one or more sports to prioritise their live games,
-                  upcoming fixtures, highlights, and news across SPORTIVRA.
+                  Select one or more sports to prioritise their live matches,
+                  upcoming schedule, highlights, and news across SPORTIVRA.
                 </p>
               </div>
 
@@ -2440,10 +2460,11 @@ export function SportivraApp({
                           {upcomingCount} upcoming
                         </span>
                         <span className="rounded-md bg-slate-100 px-2 py-0.5 dark:bg-white/5">
-                          {highlightCount} highlights
+                          {highlightCount}{' '}
+                          {highlightCount === 1 ? 'highlight' : 'highlights'}
                         </span>
                         <span className="rounded-md bg-slate-100 px-2 py-0.5 dark:bg-white/5">
-                          {newsCount} news
+                          {newsCount} {newsCount === 1 ? 'article' : 'articles'}
                         </span>
                       </div>
 
@@ -2530,7 +2551,7 @@ export function SportivraApp({
                         Follow your favourite teams
                       </h3>
                       <p className="mt-1 max-w-xl text-xs leading-relaxed text-slate-600 sm:text-sm dark:text-white/60">
-                        Pick any club, national side, or athlete from live and
+                        Choose any club, national team, or athlete from live and
                         scheduled SPORTIVRA events below to track their fixtures
                         and results in one place.
                       </p>
@@ -2649,7 +2670,7 @@ export function SportivraApp({
                             </button>
                           ) : (
                             <span className="text-slate-500 dark:text-white/50">
-                              No active fixtures recorded yet.
+                              No matches recorded yet.
                             </span>
                           )}
                         </div>
@@ -2669,7 +2690,7 @@ export function SportivraApp({
                     </div>
                     {followedTeamUpcomingMatches.length === 0 ? (
                       <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-xs text-slate-600 shadow-sm dark:border-white/10 dark:bg-[#0e1727]/60 dark:text-white/60 dark:shadow-none">
-                        No upcoming matches currently scheduled for your
+                        No upcoming matches are currently scheduled for your
                         followed teams.
                       </div>
                     ) : (
@@ -2702,8 +2723,8 @@ export function SportivraApp({
                     </div>
                     {followedTeamResultMatches.length === 0 ? (
                       <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-xs text-slate-600 shadow-sm dark:border-white/10 dark:bg-[#0e1727]/60 dark:text-white/60 dark:shadow-none">
-                        No live games or completed results recorded yet for your
-                        followed teams.
+                        No live matches or completed results are recorded yet
+                        for your followed teams.
                       </div>
                     ) : (
                       <div className="grid gap-3 md:grid-cols-2">
@@ -2975,7 +2996,7 @@ export function SportivraApp({
           ) : showcaseHighlights.length === 0 ? (
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-8 text-center dark:border-white/10 dark:bg-[#1f2937]/40">
               <p className="text-sm text-slate-600 dark:text-white/60">
-                No {selectedSport ? `${selectedSport.name} ` : ''}highlights
+                No {selectedSport ? `${selectedSport.name} ` : ''}highlights are
                 published yet.
               </p>
             </div>
@@ -3070,7 +3091,7 @@ export function SportivraApp({
         ) : filteredNews.length === 0 ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm dark:border-white/10 dark:bg-[#1f2937]/40 dark:shadow-none">
             <p className="text-sm text-slate-600 dark:text-white/60">
-              No {selectedSport ? `${selectedSport.name} ` : ''}news articles
+              No {selectedSport ? `${selectedSport.name} ` : ''}news articles are
               available yet.
             </p>
           </div>
@@ -3134,7 +3155,7 @@ export function SportivraApp({
           </h2>
           <p className="mt-3 max-w-md text-sm font-medium leading-6 text-[#0b1220]/80">
             Create your SPORTIVRA account for personalised match reminders,
-            favourite sport tracking, highlights, and real-time fixture updates.
+            favourite sport tracking, highlights, and real-time match updates.
           </p>
           <button
             type="button"
@@ -3230,7 +3251,7 @@ export function SportivraApp({
                   ))
                 ) : sports.length === 0 ? (
                   <li className="text-slate-400 dark:text-white/40">
-                    No sports loaded
+                    No sports available
                   </li>
                 ) : (
                   sports.map((sport) => (
