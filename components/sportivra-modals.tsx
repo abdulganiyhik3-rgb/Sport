@@ -38,6 +38,23 @@ import {
 } from '@/lib/sportivra/data'
 import { prioritiseBySports } from '@/lib/sportivra/personalisation'
 
+function formatMembershipTierLabel(
+  tier: ProfileRow['membership_tier'] | null | undefined,
+): string {
+  if (tier === 'premium') return 'Premium'
+  if (tier === 'pro') return 'Pro'
+  return 'Free'
+}
+
+function formatMembershipStatusLabel(
+  status: ProfileRow['membership_status'] | null | undefined,
+): string {
+  if (!status) return 'Active'
+  return status
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (ch) => ch.toUpperCase())
+}
+
 function formatAuthError(message: string): string {
   const lower = message.toLowerCase()
   if (lower.includes('rate limit') || lower.includes('too many requests')) {
@@ -156,7 +173,6 @@ export function AuthAccountModal({
   const [showPassword, setShowPassword] = useState(false)
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [fullName, setFullName] = useState('')
-  const [signupTier, setSignupTier] = useState<'free' | 'pro'>('free')
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [infoMsg, setInfoMsg] = useState<string | null>(null)
@@ -166,13 +182,9 @@ export function AuthAccountModal({
 
   const [editName, setEditName] = useState(profile?.full_name ?? '')
   const [editFavSports, setEditFavSports] = useState<string[]>(favoriteSportIds)
-  const [editTier, setEditTier] = useState<'free' | 'pro'>(
-    profile?.membership_tier ?? 'free',
-  )
 
   useEffect(() => {
     setEditName(profile?.full_name ?? '')
-    setEditTier(profile?.membership_tier ?? 'free')
   }, [profile])
 
   useEffect(() => {
@@ -233,7 +245,6 @@ export function AuthAccountModal({
           emailRedirectTo: redirectTo,
           data: {
             full_name: fullName.trim() || null,
-            membership_tier: signupTier,
           },
         },
       })
@@ -384,8 +395,6 @@ export function AuthAccountModal({
             favorite_sport_ids: editFavSports,
             favorite_sport_id: editFavSports[0] ?? null,
             favorite_teams: favoriteTeams,
-            membership_tier: editTier,
-            membership_status: 'active',
           },
           { onConflict: 'id' },
         )
@@ -497,9 +506,13 @@ export function AuthAccountModal({
                 <p className="text-xs text-slate-600 dark:text-white/55">
                   Plan:{' '}
                   <span className="font-bold uppercase text-[#0f7a06] dark:text-[#39ff14]">
-                    {profile?.membership_tier ?? 'free'}
+                    {formatMembershipTierLabel(profile?.membership_tier)}
                   </span>{' '}
-                  • Status: {profile?.membership_status ?? 'active'}
+                  • Status:{' '}
+                  {formatMembershipStatusLabel(profile?.membership_status)}
+                  {profile?.subscription_expires_at
+                    ? ` • Renews/Ends: ${formatArticleDate(profile.subscription_expires_at)}`
+                    : ''}
                 </p>
               </div>
             </div>
@@ -573,31 +586,23 @@ export function AuthAccountModal({
               </div>
             </div>
 
-            <div>
-              <label className={labelClass}>Membership tier</label>
-              <div className="grid grid-cols-2 gap-3">
-                {(['free', 'pro'] as const).map((tier) => (
-                  <button
-                    key={tier}
-                    type="button"
-                    onClick={() => setEditTier(tier)}
-                    className={`rounded-xl border p-3.5 text-left transition ${
-                      editTier === tier
-                        ? 'border-[#0f7a06] bg-[#39ff14]/15 dark:border-[#39ff14] dark:bg-[#39ff14]/10'
-                        : 'border-slate-200 bg-slate-50 hover:border-slate-300 dark:border-white/12 dark:bg-[#0b1220] dark:hover:border-white/25'
-                    }`}
-                  >
-                    <p className="text-sm font-bold uppercase text-[#0b1220] dark:text-white">
-                      SPORTIVRA {tier}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-600 dark:text-white/55">
-                      {tier === 'free'
-                        ? 'Scores, schedule, reminders & news'
-                        : 'Full member profile & personalised feed'}
-                    </p>
-                  </button>
-                ))}
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600 dark:border-white/10 dark:bg-[#0b1220] dark:text-white/60">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-[#0b1220] dark:text-white">
+                  Current membership:{' '}
+                  <span className="text-[#0f7a06] dark:text-[#39ff14]">
+                    SPORTIVRA{' '}
+                    {formatMembershipTierLabel(profile?.membership_tier)}
+                  </span>
+                </span>
+                <span className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:border-white/15 dark:bg-white/5 dark:text-white/75">
+                  {formatMembershipStatusLabel(profile?.membership_status)}
+                </span>
               </div>
+              <p className="mt-1 text-[11px] text-slate-500 dark:text-white/45">
+                Membership upgrades and billing are verified automatically on
+                the server after payment confirmation.
+              </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
@@ -609,7 +614,7 @@ export function AuthAccountModal({
                 {loading ? 'Saving...' : 'Save profile'}
               </button>
               <span className="text-[11px] text-slate-500 dark:text-white/50">
-                Saves your name, favourite sports, and plan to your account.
+                Saves your name and favourite sports to your account.
               </span>
             </div>
           </form>
@@ -906,37 +911,19 @@ export function AuthAccountModal({
             </div>
 
             {mode === 'signup' && (
-              <div>
-                <label className={labelClass}>Choose plan</label>
-                <div className="grid grid-cols-2 gap-2.5">
-                  {(['free', 'pro'] as const).map((tier) => (
-                    <button
-                      key={tier}
-                      type="button"
-                      onClick={() => setSignupTier(tier)}
-                      className={`rounded-xl border p-3 text-left transition ${
-                        signupTier === tier
-                          ? 'border-[#0f7a06] bg-[#39ff14]/15 dark:border-[#39ff14] dark:bg-[#39ff14]/10'
-                          : 'border-slate-200 bg-slate-50 dark:border-white/12 dark:bg-[#0b1220]'
-                      }`}
-                    >
-                      <p className="text-xs font-bold uppercase text-[#0b1220] dark:text-white">
-                        {tier === 'free' ? 'Free Pass' : 'Pro Access'}
-                      </p>
-                      <p className="mt-0.5 text-[11px] text-slate-600 dark:text-white/50">
-                        {tier === 'free'
-                          ? 'Schedule & reminders'
-                          : 'Full member profile'}
-                      </p>
-                    </button>
-                  ))}
-                </div>
-                <p className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-white/50">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-[11px] text-slate-600 dark:border-white/10 dark:bg-[#0b1220] dark:text-white/60">
+                <p className="font-semibold text-[#0b1220] dark:text-white">
+                  Free SPORTIVRA membership included
+                </p>
+                <p className="mt-1 flex items-center gap-1.5">
                   <ShieldCheck
                     size={13}
-                    className="text-[#0f7a06] dark:text-[#39ff14]"
+                    className="shrink-0 text-[#0f7a06] dark:text-[#39ff14]"
                   />
-                  Email confirmation is required before your first sign-in.
+                  <span>
+                    Every new account starts on Free membership. Email
+                    confirmation is required before your first sign-in.
+                  </span>
                 </p>
               </div>
             )}
