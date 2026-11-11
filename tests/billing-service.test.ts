@@ -854,4 +854,109 @@ describe('Webhooks, duplicate delivery, lifecycle & server-only token isolation'
     assert.ok(state.subscriptions[0].ended_at !== null)
     assert.equal(await hasActivePremiumAccess(admin, 'user-1'), false)
   })
+
+  it('rejects tampered webhook charge amounts and supports top-level subscription_code renewal fallback', async () => {
+    const { admin, state } = createFakeAdminClient({
+      profiles: [makeProfile()],
+      subscription_plans: [makeReadyPlan({ amount_minor: 2500, currency: 'NGN' })],
+    })
+    const provider = makeMockProvider()
+
+    const init = await initializeSubscriptionCheckout(
+      { admin, provider },
+      {
+        userId: 'user-1',
+        userEmail: 'fan@example.com',
+        planCode: 'premium_monthly',
+        appOrigin: 'https://sportivra.example.com',
+      },
+    )
+
+    // Tampered amount/currency via charge.success webhook -> 409 WEBHOOK_AMOUNT_MISMATCH
+    const tamperedWebhook = signWebhook({
+      id: 'evt_tampered_charge_1',
+      event: 'charge.success',
+      data: {
+        id: 777001,
+        reference: init.reference,
+        amount: 100,
+        currency: 'NGN',
+        customer: { customer_code: 'CUS_test_1' },
+        plan: 'PLN_test_monthly',
+      },
+    })
+
+    await assert.rejects(
+      () => processPaystackWebhook({ admin, provider }, tamperedWebhook),
+      (err: unknown) =>
+        err instanceof BillingError &&
+        err.statusCode === 409 &&
+        err.code === 'WEBHOOK_AMOUNT_MISMATCH',
+    )
+    assert.equal(state.payment_transactions[0].status, 'failed')
+    assert.equal(state.subscriptions.length, 0)
+    assert.equal(state.webhook_events[0].processing_status, 'failed')
+
+    // Valid charge settles initial subscription
+    const validInitCharge = signWebhook({
+      id: 'evt_valid_charge_1',
+      event: 'charge.success',
+      data: {
+        id: 777002,
+        reference: init.reference,
+        amount: 2500,
+        currency: 'NGN',
+        paid_at: '2026-11-11T10:00:00.000Z',
+        channel: 'card',
+        customer: { customer_code: 'CUS_initial' },
+        authorization: { authorization_code: 'AUTH_1' },
+        plan: 'PLN_test_monthly',
+        subscription_code: 'SUB_top_level_1',
+      },
+    })
+    await processPaystackWebhook({ admin, provider }, validInitCharge)
+    assert.equal(state.subscriptions.length, 1)
+    assert.equal(state.subscriptions[0].provider_subscription_ref, 'SUB_top_level_1')
+    const firstEnd = state.subscriptions[0].current_period_end!
+
+    // Renewal webhook with ONLY top-level data.subscription_code (no matching customer_code)
+    const topLevelRenewal = signWebhook({
+      id: 'evt_top_level_renewal_2',
+      event: 'charge.success',
+      data: {
+        id: 777003,
+        reference: 'PAYSTACK_RENEW_777003',
+        amount: 2500,
+        currency: 'NGN',
+        paid_at: '2026-12-11T10:00:00.000Z',
+        channel: 'card',
+        customer: { customer_code: 'CUS_different_on_renewal' },
+        plan: 'PLN_test_monthly',
+        subscription_code: 'SUB_top_level_1',
+      },
+    })
+    const renewalResult = await processPaystackWebhook(
+      { admin, provider },
+      topLevelRenewal,
+    )
+    assert.equal(renewalResult.processingStatus, 'processed')
+    assert.equal(state.payment_transactions.length, 2)
+    assert.ok(
+      Date.parse(state.subscriptions[0].current_period_end!) > Date.parse(firstEnd),
+    )
+
+    // invoice.payment_failed with top-level data.subscription_code marks past_due
+    const failTopLevel = signWebhook({
+      id: 'evt_fail_top_level_sub',
+      event: 'invoice.payment_failed',
+      data: {
+        invoice_code: 'INV_fail_top',
+        amount: 2500,
+        subscription_code: 'SUB_top_level_1',
+        transaction: { id: 777004, reference: 'SPTV_fail_top' },
+      },
+    })
+    await processPaystackWebhook({ admin, provider }, failTopLevel)
+    assert.equal(state.subscriptions[0].status, 'past_due')
+  })
 })

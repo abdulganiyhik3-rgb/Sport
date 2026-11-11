@@ -61,20 +61,6 @@ function defaultGetProvider(): BillingProvider {
   return createPaystackProvider()
 }
 
-function jsonError(err: unknown): NextResponse {
-  if (err instanceof BillingError) {
-    return NextResponse.json(
-      { error: err.message, code: err.code },
-      { status: err.statusCode },
-    )
-  }
-
-  return NextResponse.json(
-    { error: 'Internal billing service error.', code: 'INTERNAL_ERROR' },
-    { status: 500 },
-  )
-}
-
 function noStoreJson(body: unknown, status = 200): NextResponse {
   return NextResponse.json(body, {
     status,
@@ -84,12 +70,33 @@ function noStoreJson(body: unknown, status = 200): NextResponse {
   })
 }
 
+function jsonError(err: unknown): NextResponse {
+  if (err instanceof BillingError) {
+    return noStoreJson({ error: err.message, code: err.code }, err.statusCode)
+  }
+
+  return noStoreJson(
+    { error: 'Internal billing service error.', code: 'INTERNAL_ERROR' },
+    500,
+  )
+}
+
 export async function handleGetBillingPlans(
   deps: BillingHandlerDeps = {},
 ): Promise<NextResponse> {
   try {
-    const admin = (deps.getAdminClient ?? defaultGetAdminClient)()
-    const result = await listPublicPlans(admin)
+    let client: AdminSupabaseClient
+    if (deps.getAdminClient) {
+      client = deps.getAdminClient()
+    } else if (process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
+      client = createAdminClient()
+    } else {
+      // subscription_plans is intentionally readable via anon/authenticated RLS;
+      // allow public plan catalog reads when service_role is absent in local preview.
+      client = await createServerSupabaseClient()
+    }
+
+    const result = await listPublicPlans(client)
     return noStoreJson(result, 200)
   } catch (err) {
     return jsonError(err)

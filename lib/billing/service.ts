@@ -1413,9 +1413,10 @@ export async function processPaystackWebhook(
         asNonEmptyString(planObject.plan_code) ||
         asNonEmptyString(asRecord(data.plan_object).plan_code)
       const subscriptionObject = asRecord(data.subscription)
-      const subscriptionCode = asNonEmptyString(
-        subscriptionObject.subscription_code,
-      )
+      const subscriptionCode =
+        asNonEmptyString(subscriptionObject.subscription_code) ||
+        asNonEmptyString(data.subscription_code) ||
+        asNonEmptyString(data.subscription)
       const metadata = asRecord(data.metadata)
 
       let existingTx: PaymentTransactionRow | null = null
@@ -1694,9 +1695,10 @@ export async function processPaystackWebhook(
       (eventType === 'invoice.update' && data.paid === false)
     ) {
       const subscriptionObject = asRecord(data.subscription)
-      const subscriptionCode = asNonEmptyString(
-        subscriptionObject.subscription_code,
-      )
+      const subscriptionCode =
+        asNonEmptyString(subscriptionObject.subscription_code) ||
+        asNonEmptyString(data.subscription_code) ||
+        asNonEmptyString(data.subscription)
       const txObj = asRecord(data.transaction)
       const txRef = asNonEmptyString(txObj.reference)
       const txId =

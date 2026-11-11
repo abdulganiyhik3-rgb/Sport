@@ -233,6 +233,25 @@ describe('Paystack signature & REST adapter', () => {
 
     const link = await provider.generateManagementLink('SUB_mock_01')
     assert.equal(link.managementUrl, 'https://paystack.com/manage/mock_link')
+
+    // Also verify top-level data.subscription_code fallback when data.subscription is omitted
+    const fallbackProvider = createPaystackProvider({
+      secretKey: MOCK_SECRET,
+      fetchImpl: async () =>
+        Response.json({
+          status: true,
+          data: {
+            id: 778900,
+            status: 'success',
+            reference: 'SPTV_ref_002',
+            amount: 1000,
+            currency: 'NGN',
+            subscription_code: 'SUB_top_level_mock',
+          },
+        }),
+    })
+    const verifiedTopLevel = await fallbackProvider.verifyTransaction('SPTV_ref_002')
+    assert.equal(verifiedTopLevel.subscriptionCode, 'SUB_top_level_mock')
   })
 
   it('rejects Paystack verification when reference or payload invariants fail', async () => {

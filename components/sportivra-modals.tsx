@@ -9,16 +9,23 @@ import {
   ChevronRight,
   CirclePlay,
   Clock3,
+  CreditCard,
+  ExternalLink,
   Eye,
   EyeOff,
   Film,
   Heart,
   KeyRound,
+  Loader2,
+  Lock,
   LogOut,
   MailCheck,
   Play,
   Plus,
+  Receipt,
+  RefreshCw,
   ShieldCheck,
+  Sparkles,
   Trophy,
   User as UserIcon,
   X,
@@ -30,30 +37,25 @@ import type {
   NewsArticleRow,
   ProfileRow,
   SportRow,
+  StreamFormat,
 } from '@/lib/supabase/types'
+import {
+  BillingClientError,
+  cancelUserSubscriptionRequest,
+  createManageSubscriptionLinkRequest,
+  describeAccountMembershipSummary,
+  fetchProtectedMediaAccess,
+  formatMinorCurrency,
+  getStreamPlaybackStrategy,
+  type MediaAccessClientResult,
+  type UserBillingOverview,
+} from '@/lib/billing/client'
 import {
   formatArticleDate,
   formatMatchDayLabel,
   formatUtcTime,
 } from '@/lib/sportivra/data'
 import { prioritiseBySports } from '@/lib/sportivra/personalisation'
-
-function formatMembershipTierLabel(
-  tier: ProfileRow['membership_tier'] | null | undefined,
-): string {
-  if (tier === 'premium') return 'Premium'
-  if (tier === 'pro') return 'Pro'
-  return 'Free'
-}
-
-function formatMembershipStatusLabel(
-  status: ProfileRow['membership_status'] | null | undefined,
-): string {
-  if (!status) return 'Active'
-  return status
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (ch) => ch.toUpperCase())
-}
 
 function formatAuthError(message: string): string {
   const lower = message.toLowerCase()
@@ -68,12 +70,14 @@ function ModalShell({
   title,
   eyebrow,
   maxWidth = 'max-w-2xl',
+  zIndexClass = 'z-50',
   children,
 }: {
   onClose: () => void
   title: string
   eyebrow?: string
   maxWidth?: string
+  zIndexClass?: string
   children: React.ReactNode
 }) {
   useEffect(() => {
@@ -91,7 +95,7 @@ function ModalShell({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm dark:bg-black/75"
+      className={`fixed inset-0 ${zIndexClass} flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm dark:bg-black/75`}
       role="dialog"
       aria-modal="true"
       aria-label={title}
@@ -136,6 +140,13 @@ export function AuthAccountModal({
   favoriteTeams,
   remindedMatches,
   pendingReminderMessage,
+  billingOverview = null,
+  billingLoading = false,
+  billingError = null,
+  paidPlansConfigured = false,
+  onRefreshBilling,
+  onBillingChanged,
+  onNavigateToPlans,
   onClose,
   onAuthSuccess,
   onProfileUpdated,
@@ -151,6 +162,13 @@ export function AuthAccountModal({
   favoriteTeams: string[]
   remindedMatches: MatchRow[]
   pendingReminderMessage?: string | null
+  billingOverview?: UserBillingOverview | null
+  billingLoading?: boolean
+  billingError?: string | null
+  paidPlansConfigured?: boolean
+  onRefreshBilling?: () => Promise<void>
+  onBillingChanged?: () => Promise<void>
+  onNavigateToPlans?: () => void
   onClose: () => void
   onAuthSuccess: () => Promise<void>
   onProfileUpdated: (profile: ProfileRow) => void
@@ -179,6 +197,20 @@ export function AuthAccountModal({
   const [needsConfirmationEmail, setNeedsConfirmationEmail] = useState<
     string | null
   >(null)
+
+  const [confirmCancelOpen, setConfirmCancelOpen] = useState(false)
+  const [billingActionLoading, setBillingActionLoading] = useState<
+    'cancel' | 'manage' | null
+  >(null)
+  const [billingActionError, setBillingActionError] = useState<string | null>(
+    null,
+  )
+  const [billingActionInfo, setBillingActionInfo] = useState<string | null>(
+    null,
+  )
+  const [manageUrlFallback, setManageUrlFallback] = useState<string | null>(
+    null,
+  )
 
   const [editName, setEditName] = useState(profile?.full_name ?? '')
   const [editFavSports, setEditFavSports] = useState<string[]>(favoriteSportIds)
@@ -431,6 +463,63 @@ export function AuthAccountModal({
     }
   }
 
+  const handleCancelSubscription = async () => {
+    setBillingActionError(null)
+    setBillingActionInfo(null)
+    setBillingActionLoading('cancel')
+
+    try {
+      const res = await cancelUserSubscriptionRequest()
+      setConfirmCancelOpen(false)
+      setBillingActionInfo(
+        res.hasActivePremium
+          ? 'Auto-renewal cancelled. Your Premium access remains active through the end of your current billing period.'
+          : 'Your subscription has been cancelled.',
+      )
+      if (onBillingChanged) {
+        await onBillingChanged()
+      }
+    } catch (err) {
+      setBillingActionError(
+        err instanceof BillingClientError
+          ? err.message
+          : 'Unable to cancel auto-renewal right now.',
+      )
+    } finally {
+      setBillingActionLoading(null)
+    }
+  }
+
+  const handleOpenManageLink = async () => {
+    setBillingActionError(null)
+    setBillingActionInfo(null)
+    setManageUrlFallback(null)
+    setBillingActionLoading('manage')
+
+    try {
+      const { managementUrl } = await createManageSubscriptionLinkRequest()
+      setManageUrlFallback(managementUrl)
+      const opened = window.open(managementUrl, '_blank', 'noopener,noreferrer')
+      if (!opened) {
+        setBillingActionInfo(
+          'Paystack management link is ready below — open it to update your card or billing details.',
+        )
+      } else {
+        setBillingActionInfo(
+          'Opened your Paystack subscription management page in a new tab.',
+        )
+      }
+    } catch (err) {
+      setBillingActionError(
+        err instanceof BillingClientError
+          ? err.message
+          : 'Unable to generate Paystack management link right now.',
+      )
+    } finally {
+      setBillingActionLoading(null)
+    }
+  }
+
   const inputClass =
     'h-11 w-full rounded-xl border border-slate-300 bg-white px-3.5 text-sm text-[#0b1220] outline-none placeholder:text-slate-400 focus:border-[#0f7a06] dark:border-white/12 dark:bg-[#0b1220] dark:text-white dark:placeholder:text-white/30 dark:focus:border-[#39ff14]'
   const labelClass =
@@ -447,6 +536,7 @@ export function AuthAccountModal({
         eyebrow="Security"
         title="Set a new password"
         maxWidth="max-w-md"
+        zIndexClass="z-[60]"
       >
         <form onSubmit={handleUpdatePassword} className="space-y-4">
           {errorMsg && <div className={errorBoxClass}>{errorMsg}</div>}
@@ -487,11 +577,18 @@ export function AuthAccountModal({
   }
 
   if (user) {
+    const accountSummary = describeAccountMembershipSummary(billingOverview, {
+      loading: billingLoading,
+      error: billingError,
+    })
+    const subscriptionDisplay = accountSummary.subscription
+
     return (
       <ModalShell
         onClose={onClose}
         eyebrow="Member account"
         title={profile?.full_name || user.email || 'SPORTIVRA Member'}
+        zIndexClass="z-[60]"
       >
         <div className="space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-white/5">
@@ -506,12 +603,13 @@ export function AuthAccountModal({
                 <p className="text-xs text-slate-600 dark:text-white/55">
                   Plan:{' '}
                   <span className="font-bold uppercase text-[#0f7a06] dark:text-[#39ff14]">
-                    {formatMembershipTierLabel(profile?.membership_tier)}
+                    {accountSummary.tierLabel}
                   </span>{' '}
-                  • Status:{' '}
-                  {formatMembershipStatusLabel(profile?.membership_status)}
-                  {profile?.subscription_expires_at
-                    ? ` • Renews/Ends: ${formatArticleDate(profile.subscription_expires_at)}`
+                  • Status: {accountSummary.statusLabel}
+                  {accountSummary.periodDateIso && accountSummary.periodDateVerb
+                    ? ` • ${accountSummary.periodDateVerb}: ${formatArticleDate(
+                        accountSummary.periodDateIso,
+                      )}`
                     : ''}
                 </p>
               </div>
@@ -524,6 +622,233 @@ export function AuthAccountModal({
             >
               <LogOut size={14} /> Sign out
             </button>
+          </div>
+
+          {/* Subscription Management & Billing History */}
+          <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5 dark:border-white/10 dark:bg-[#0b1220]/90">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <CreditCard
+                    size={15}
+                    className="text-[#0f7a06] dark:text-[#39ff14]"
+                  />
+                  <h3 className="text-sm font-bold text-[#0b1220] dark:text-white">
+                    Subscription &amp; Billing
+                  </h3>
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                      subscriptionDisplay.hasActivePremium
+                        ? 'bg-[#39ff14]/25 text-[#0f7a06] dark:bg-[#39ff14]/15 dark:text-[#39ff14]'
+                        : 'border border-slate-200 bg-white text-slate-700 dark:border-white/15 dark:bg-white/5 dark:text-white/75'
+                    }`}
+                  >
+                    {subscriptionDisplay.badgeLabel}
+                  </span>
+                </div>
+                <p className="mt-1.5 text-sm font-semibold text-[#0b1220] dark:text-white">
+                  {subscriptionDisplay.planTitle}
+                  {billingOverview?.subscription?.billingInterval
+                    ? ` (${billingOverview.subscription.billingInterval === 'year' ? 'Yearly' : 'Monthly'})`
+                    : ''}
+                </p>
+                <p className="mt-0.5 text-xs text-slate-600 dark:text-white/60">
+                  {subscriptionDisplay.periodSummary}
+                </p>
+              </div>
+
+              {onRefreshBilling && (
+                <button
+                  type="button"
+                  onClick={() => void onRefreshBilling()}
+                  disabled={billingLoading}
+                  className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-[#0f7a06] dark:border-white/15 dark:bg-white/5 dark:text-white/80 dark:hover:border-[#39ff14]"
+                >
+                  <RefreshCw
+                    size={12}
+                    className={billingLoading ? 'animate-spin' : ''}
+                  />
+                  {billingLoading ? 'Refreshing...' : 'Refresh'}
+                </button>
+              )}
+            </div>
+
+            {billingError && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-900 dark:border-amber-500/35 dark:bg-amber-500/10 dark:text-amber-200">
+                <span>{billingError}</span>
+                {onRefreshBilling && (
+                  <button
+                    type="button"
+                    onClick={() => void onRefreshBilling()}
+                    className="font-bold underline"
+                  >
+                    Retry
+                  </button>
+                )}
+              </div>
+            )}
+
+            {billingActionError && (
+              <div className={errorBoxClass}>{billingActionError}</div>
+            )}
+            {billingActionInfo && (
+              <div className={infoBoxClass}>
+                <p>{billingActionInfo}</p>
+                {manageUrlFallback && (
+                  <a
+                    href={manageUrlFallback}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1.5 inline-flex items-center gap-1 font-bold underline"
+                  >
+                    Open Paystack subscription page <ExternalLink size={12} />
+                  </a>
+                )}
+              </div>
+            )}
+
+            {confirmCancelOpen && (
+              <div className="space-y-3 rounded-xl border border-red-200 bg-red-50/90 p-3.5 text-xs dark:border-[#ff3b45]/35 dark:bg-[#ff3b45]/10">
+                <p className="font-semibold text-red-900 dark:text-[#ff8b91]">
+                  Cancel auto-renewal? Your Premium access will stay active until
+                  the end of your current billing period.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleCancelSubscription()}
+                    disabled={billingActionLoading === 'cancel'}
+                    className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-[#ff3b45] px-4 text-xs font-bold text-white transition hover:bg-red-600 disabled:opacity-60"
+                  >
+                    {billingActionLoading === 'cancel' ? (
+                      <>
+                        <Loader2 size={13} className="animate-spin" />{' '}
+                        Cancelling...
+                      </>
+                    ) : (
+                      'Confirm cancellation'
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmCancelOpen(false)}
+                    disabled={billingActionLoading === 'cancel'}
+                    className="inline-flex min-h-9 items-center rounded-full border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 dark:border-white/15 dark:bg-[#0b1220] dark:text-white/80"
+                  >
+                    Keep subscription
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              {subscriptionDisplay.canManage && (
+                <button
+                  type="button"
+                  onClick={() => void handleOpenManageLink()}
+                  disabled={billingActionLoading !== null}
+                  className="inline-flex min-h-10 items-center gap-1.5 rounded-full border border-slate-300 bg-white px-4 text-xs font-bold text-[#0b1220] transition hover:border-[#0f7a06] disabled:opacity-60 dark:border-white/15 dark:bg-white/5 dark:text-white dark:hover:border-[#39ff14]"
+                >
+                  {billingActionLoading === 'manage' ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <ExternalLink size={13} />
+                  )}
+                  Manage payment method
+                </button>
+              )}
+
+              {subscriptionDisplay.canCancel && !confirmCancelOpen && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBillingActionError(null)
+                    setBillingActionInfo(null)
+                    setConfirmCancelOpen(true)
+                  }}
+                  disabled={billingActionLoading !== null}
+                  className="inline-flex min-h-10 items-center gap-1.5 rounded-full border border-red-300 bg-white px-4 text-xs font-bold text-red-700 transition hover:bg-red-50 disabled:opacity-60 dark:border-[#ff3b45]/40 dark:bg-transparent dark:text-[#ff8b91] dark:hover:bg-[#ff3b45]/10"
+                >
+                  Cancel auto-renewal
+                </button>
+              )}
+
+              {!subscriptionDisplay.hasActivePremium &&
+                accountSummary.tierLabel === 'Free' &&
+                onNavigateToPlans &&
+                (paidPlansConfigured ? (
+                  <button
+                    type="button"
+                    onClick={onNavigateToPlans}
+                    className="inline-flex min-h-10 items-center gap-1.5 rounded-full bg-[#39ff14] px-4 text-xs font-bold text-[#0b1220] transition hover:bg-[#5cff3d] dark:hover:bg-[#a8ff9d]"
+                  >
+                    <Sparkles size={13} /> Upgrade to Premium
+                  </button>
+                ) : (
+                  <span className="text-[11px] font-medium text-slate-500 dark:text-white/55">
+                    Premium plans coming soon — pricing is currently being
+                    finalized.
+                  </span>
+                ))}
+            </div>
+
+            {/* Billing History */}
+            <div className="border-t border-slate-200 pt-3.5 dark:border-white/10">
+              <p className="mb-2 flex items-center gap-1.5 text-xs font-bold text-[#0b1220] dark:text-white">
+                <Receipt
+                  size={13}
+                  className="text-[#0f7a06] dark:text-[#39ff14]"
+                />
+                Billing history
+              </p>
+              {billingLoading && !billingOverview ? (
+                <p className="flex items-center gap-2 text-xs text-slate-500 dark:text-white/50">
+                  <Loader2 size={13} className="animate-spin" /> Loading
+                  subscription and billing history...
+                </p>
+              ) : !billingOverview ||
+                billingOverview.recentTransactions.length === 0 ? (
+                <p className="text-xs text-slate-500 dark:text-white/50">
+                  No payment transactions recorded yet.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {billingOverview.recentTransactions.map((tx) => {
+                    const formattedAmount =
+                      formatMinorCurrency(tx.amountMinor, tx.currency) ??
+                      `${tx.currency} ${tx.amountMinor}`
+                    return (
+                      <div
+                        key={tx.id}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs dark:border-white/10 dark:bg-[#0e1727]"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-semibold text-[#0b1220] dark:text-white">
+                            {formattedAmount}
+                            {tx.paymentChannel ? ` • ${tx.paymentChannel}` : ''}
+                          </p>
+                          <p className="truncate text-[11px] text-slate-500 dark:text-white/50">
+                            {formatArticleDate(tx.paidAt ?? tx.createdAt)}
+                            {tx.reference ? ` • Ref: ${tx.reference}` : ''}
+                          </p>
+                        </div>
+                        <span
+                          className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                            tx.status === 'succeeded'
+                              ? 'bg-emerald-50 text-[#0f7a06] dark:bg-[#39ff14]/15 dark:text-[#39ff14]'
+                              : tx.status === 'pending'
+                                ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300'
+                                : 'bg-red-50 text-red-700 dark:bg-[#ff3b45]/15 dark:text-[#ff8b91]'
+                          }`}
+                        >
+                          {tx.status}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
           {errorMsg && <div className={errorBoxClass}>{errorMsg}</div>}
@@ -584,25 +909,6 @@ export function AuthAccountModal({
                   )
                 })}
               </div>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600 dark:border-white/10 dark:bg-[#0b1220] dark:text-white/60">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-semibold text-[#0b1220] dark:text-white">
-                  Current membership:{' '}
-                  <span className="text-[#0f7a06] dark:text-[#39ff14]">
-                    SPORTIVRA{' '}
-                    {formatMembershipTierLabel(profile?.membership_tier)}
-                  </span>
-                </span>
-                <span className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:border-white/15 dark:bg-white/5 dark:text-white/75">
-                  {formatMembershipStatusLabel(profile?.membership_status)}
-                </span>
-              </div>
-              <p className="mt-1 text-[11px] text-slate-500 dark:text-white/45">
-                Membership upgrades and billing are verified automatically on
-                the server after payment confirmation.
-              </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
@@ -718,6 +1024,7 @@ export function AuthAccountModal({
             : 'Reset your password'
       }
       maxWidth="max-w-md"
+      zIndexClass="z-[60]"
     >
       <div className="space-y-5">
         {pendingReminderMessage && (
@@ -950,22 +1257,32 @@ export function AuthAccountModal({
 
 function StreamPlayer({
   mediaUrl,
+  streamFormat,
   posterUrl,
 }: {
   mediaUrl: string
+  streamFormat?: StreamFormat
   posterUrl?: string | null
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [playbackError, setPlaybackError] = useState<string | null>(null)
+  const strategy = getStreamPlaybackStrategy(mediaUrl, streamFormat)
+  const dashUnsupportedMessage =
+    strategy === 'unsupported_dash'
+      ? 'MPEG-DASH (.mpd) playback is not supported in this browser player. Configure an HLS (.m3u8) or MP4 stream.'
+      : null
 
   useEffect(() => {
+    if (strategy === 'unsupported_dash') {
+      setPlaybackError(null)
+      return
+    }
+
     const video = videoRef.current
     if (!video) return
     setPlaybackError(null)
 
-    const isHls = /\.m3u8(\?|$)/i.test(mediaUrl)
-
-    if (isHls) {
+    if (strategy === 'hls') {
       if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = mediaUrl
         return
@@ -990,9 +1307,11 @@ function StreamPlayer({
     }
 
     video.src = mediaUrl
-  }, [mediaUrl])
+  }, [mediaUrl, strategy])
 
-  if (playbackError) {
+  const effectivePlaybackError = dashUnsupportedMessage ?? playbackError
+
+  if (effectivePlaybackError) {
     return (
       <div className="flex aspect-video w-full flex-col items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center dark:border-white/10 dark:bg-[#0b1220]">
         <AlertCircle
@@ -1003,7 +1322,7 @@ function StreamPlayer({
           Stream playback error
         </p>
         <p className="mt-1 max-w-md text-xs text-slate-600 dark:text-white/60">
-          {playbackError}
+          {effectivePlaybackError}
         </p>
       </div>
     )
@@ -1029,35 +1348,81 @@ function StreamPlayer({
 
 export function MediaViewerModal({
   item,
+  user,
   remindedIds,
   favoriteTeams,
   serverDateUtc,
   onToggleReminder,
   onToggleFollowTeam,
+  onRequestSignIn,
+  onRequestUpgrade,
   onClose,
 }: {
   item:
     | { kind: 'match'; match: MatchRow }
     | { kind: 'highlight'; highlight: HighlightRow }
+  user: { id: string; email: string | null } | null
   remindedIds: Set<string>
   favoriteTeams: Set<string>
   serverDateUtc: string
   onToggleReminder: (matchId: string) => Promise<void>
   onToggleFollowTeam: (teamName: string) => void
+  onRequestSignIn: () => void
+  onRequestUpgrade: () => void
   onClose: () => void
 }) {
   const isMatch = item.kind === 'match'
-  const mediaUrl = isMatch ? item.match.stream_url : item.highlight.video_url
+  const itemId = isMatch ? item.match.id : item.highlight.id
+  const isPremiumContent =
+    (isMatch ? item.match.access_tier : item.highlight.access_tier) ===
+    'premium'
+  const publicFreeUrl = isMatch
+    ? item.match.stream_url
+    : item.highlight.video_url
   const posterUrl = isMatch ? item.match.image_url : item.highlight.image_url
-  const hasPlayableUrl = Boolean(mediaUrl && /^https?:\/\//i.test(mediaUrl))
+  const hasFreePlayableUrl =
+    !isPremiumContent &&
+    Boolean(publicFreeUrl && /^https?:\/\//i.test(publicFreeUrl))
+
+  const [premiumLoading, setPremiumLoading] = useState(isPremiumContent)
+  const [premiumResult, setPremiumResult] =
+    useState<MediaAccessClientResult | null>(null)
+  const [accessRetryCount, setAccessRetryCount] = useState(0)
+
+  useEffect(() => {
+    if (!isPremiumContent) {
+      setPremiumLoading(false)
+      setPremiumResult(null)
+      return
+    }
+
+    let cancelled = false
+    setPremiumLoading(true)
+    setPremiumResult(null)
+
+    async function verifyMediaAccess() {
+      const target = isMatch ? { matchId: itemId } : { highlightId: itemId }
+      const result = await fetchProtectedMediaAccess(target)
+      if (!cancelled) {
+        setPremiumResult(result)
+        setPremiumLoading(false)
+      }
+    }
+
+    void verifyMediaAccess()
+
+    return () => {
+      cancelled = true
+    }
+  }, [accessRetryCount, isMatch, isPremiumContent, itemId, user?.id])
 
   const title = isMatch
     ? item.match.headline || `${item.match.home_team} vs ${item.match.away_team}`
     : item.highlight.title
 
   const eyebrow = isMatch
-    ? `${item.match.sport?.name ?? 'Sport'} • ${item.match.league}`
-    : `${item.highlight.badge}${item.highlight.duration ? ` • ${item.highlight.duration}` : ''}`
+    ? `${item.match.sport?.name ?? 'Sport'} • ${item.match.league}${isPremiumContent ? ' • PREMIUM' : ''}`
+    : `${item.highlight.badge}${item.highlight.duration ? ` • ${item.highlight.duration}` : ''}${isPremiumContent ? ' • PREMIUM' : ''}`
 
   return (
     <ModalShell
@@ -1067,8 +1432,141 @@ export function MediaViewerModal({
       maxWidth="max-w-3xl"
     >
       <div className="space-y-5">
-        {hasPlayableUrl && mediaUrl ? (
-          <StreamPlayer mediaUrl={mediaUrl} posterUrl={posterUrl} />
+        {isPremiumContent ? (
+          premiumLoading ? (
+            <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-[#0b1220] dark:border-white/10">
+              {posterUrl ? (
+                <img
+                  src={posterUrl}
+                  alt={
+                    isMatch
+                      ? item.match.image_alt ?? title
+                      : item.highlight.image_alt ?? title
+                  }
+                  className="aspect-video w-full object-cover opacity-40"
+                />
+              ) : (
+                <div className="flex aspect-video w-full items-center justify-center bg-[#1f2937]/40" />
+              )}
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#0b1220]/75 p-6 text-center backdrop-blur-[2px]">
+                <Loader2 size={28} className="mb-3 animate-spin text-[#39ff14]" />
+                <p className="text-sm font-bold text-white">
+                  Verifying SPORTIVRA Premium access
+                </p>
+                <p className="mt-1 text-xs text-white/65">
+                  Checking subscription entitlement and broadcast license...
+                </p>
+              </div>
+            </div>
+          ) : premiumResult?.granted ? (
+            <div className="space-y-2">
+              <StreamPlayer
+                mediaUrl={premiumResult.mediaUrl}
+                streamFormat={premiumResult.streamFormat}
+                posterUrl={posterUrl}
+              />
+              {premiumResult.rightsHolder && (
+                <p className="flex items-center justify-between text-[11px] text-slate-500 dark:text-white/50">
+                  <span>
+                    Licensed broadcast • {premiumResult.rightsHolder}
+                  </span>
+                  {premiumResult.licenseExpiresAt && (
+                    <span>
+                      License until{' '}
+                      {formatArticleDate(premiumResult.licenseExpiresAt)}
+                    </span>
+                  )}
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-[#0b1220] dark:border-white/10">
+              {posterUrl ? (
+                <img
+                  src={posterUrl}
+                  alt={
+                    isMatch
+                      ? item.match.image_alt ?? title
+                      : item.highlight.image_alt ?? title
+                  }
+                  className="aspect-video w-full object-cover opacity-40"
+                />
+              ) : (
+                <div className="flex aspect-video w-full items-center justify-center bg-[#1f2937]/40">
+                  <Lock size={40} className="text-white/25" />
+                </div>
+              )}
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#0b1220]/82 p-6 text-center backdrop-blur-sm">
+                <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full border border-[#39ff14]/35 bg-[#39ff14]/15 text-[#39ff14]">
+                  <Lock size={22} />
+                </div>
+                <span className="mb-2 rounded-full border border-[#39ff14]/40 bg-[#39ff14]/10 px-3 py-0.5 text-[10px] font-black uppercase tracking-widest text-[#39ff14]">
+                  SPORTIVRA Premium
+                </span>
+                <p className="text-base font-bold text-white">
+                  {premiumResult?.code === 'UNAUTHENTICATED'
+                    ? 'Sign in required for Premium playback'
+                    : premiumResult?.code === 'PREMIUM_REQUIRED'
+                      ? premiumResult.reason === 'subscription_expired'
+                        ? 'Your Premium subscription has expired'
+                        : 'Upgrade to SPORTIVRA Premium'
+                      : premiumResult?.code === 'REGION_RESTRICTED'
+                        ? 'Unavailable in your region'
+                        : premiumResult?.code === 'LICENSE_NOT_STARTED' ||
+                            premiumResult?.code === 'LICENSE_EXPIRED'
+                          ? 'Broadcast license restriction'
+                          : 'Premium stream unavailable'}
+                </p>
+                <p className="mt-2 max-w-md text-xs leading-relaxed text-white/75">
+                  {premiumResult?.error ||
+                    'Unable to unlock this Premium stream right now.'}
+                </p>
+
+                <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5">
+                  {premiumResult?.code === 'UNAUTHENTICATED' && (
+                    <button
+                      type="button"
+                      onClick={onRequestSignIn}
+                      className="inline-flex min-h-10 items-center gap-1.5 rounded-full bg-[#39ff14] px-5 text-xs font-bold text-[#0b1220] transition hover:bg-[#a8ff9d]"
+                    >
+                      Sign in
+                    </button>
+                  )}
+
+                  {(premiumResult?.upgradeRequired ||
+                    premiumResult?.code === 'UNAUTHENTICATED') && (
+                    <button
+                      type="button"
+                      onClick={onRequestUpgrade}
+                      className={`inline-flex min-h-10 items-center gap-1.5 rounded-full px-5 text-xs font-bold transition ${
+                        premiumResult?.code === 'UNAUTHENTICATED'
+                          ? 'border border-white/25 bg-white/10 text-white hover:border-[#39ff14]'
+                          : 'bg-[#39ff14] text-[#0b1220] hover:bg-[#a8ff9d]'
+                      }`}
+                    >
+                      <Sparkles size={13} />
+                      {premiumResult?.reason === 'subscription_expired'
+                        ? 'Renew Premium'
+                        : 'View Premium membership'}
+                    </button>
+                  )}
+
+                  {premiumResult &&
+                    premiumResult.statusCode >= 500 && (
+                      <button
+                        type="button"
+                        onClick={() => setAccessRetryCount((c) => c + 1)}
+                        className="inline-flex min-h-10 items-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-4 text-xs font-bold text-white hover:border-[#39ff14]"
+                      >
+                        <RefreshCw size={13} /> Retry
+                      </button>
+                    )}
+                </div>
+              </div>
+            </div>
+          )
+        ) : hasFreePlayableUrl && publicFreeUrl ? (
+          <StreamPlayer mediaUrl={publicFreeUrl} posterUrl={posterUrl} />
         ) : (
           <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-[#0b1220] dark:border-white/10">
             {posterUrl ? (
@@ -1347,6 +1845,11 @@ export function MatchCenterModal({
                           FINAL
                         </span>
                       )}
+                      {match.access_tier === 'premium' && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-800 dark:border-[#39ff14]/45 dark:bg-[#39ff14]/15 dark:text-[#39ff14]">
+                          <Lock size={9} /> Premium
+                        </span>
+                      )}
                     </div>
                     <p className="mt-2 text-base font-bold text-[#0b1220] dark:text-white">
                       {match.headline ? `${match.headline}: ` : ''}
@@ -1464,6 +1967,11 @@ export function CatalogArchiveModal({
                 <span className="absolute left-3 top-3 rounded-full bg-[#0b1220]/85 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-[#39ff14]">
                   {h.badge}
                 </span>
+                {h.access_tier === 'premium' && (
+                  <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full border border-[#39ff14]/45 bg-[#0b1220]/85 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-[#39ff14]">
+                    <Lock size={9} /> Premium
+                  </span>
+                )}
                 {h.duration && (
                   <span className="absolute bottom-3 right-3 rounded bg-black/75 px-2 py-0.5 text-[11px] font-semibold text-white">
                     {h.duration}

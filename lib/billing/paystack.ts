@@ -248,9 +248,10 @@ export function createPaystackProvider(
         authorizationReusable: authorization.reusable === true,
         planCode:
           asNonEmptyString(data.plan) || asNonEmptyString(planObject.plan_code),
-        subscriptionCode: asNonEmptyString(
-          subscriptionObject.subscription_code,
-        ),
+        subscriptionCode:
+          asNonEmptyString(subscriptionObject.subscription_code) ||
+          asNonEmptyString(data.subscription_code) ||
+          asNonEmptyString(data.subscription),
         metadata,
         raw: payload,
       }

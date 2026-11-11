@@ -2,7 +2,10 @@ import crypto from 'node:crypto'
 import type { AdminSupabaseClient } from '@/lib/supabase/admin'
 import type { MembershipStatus, MembershipTier } from '@/lib/supabase/types'
 import type {
+  HighlightRow,
+  MatchRow,
   PaymentTransactionRow,
+  PremiumMediaAssetRow,
   ProfileRow,
   SubscriptionPlanRow,
   SubscriptionProviderTokenRowPlaceholder,
@@ -12,6 +15,9 @@ import type {
 
 type TableName =
   | 'profiles'
+  | 'matches'
+  | 'highlights'
+  | 'premium_media_assets'
   | 'subscription_plans'
   | 'subscriptions'
   | 'subscription_provider_tokens'
@@ -20,6 +26,9 @@ type TableName =
 
 export interface FakeDbState {
   profiles: ProfileRow[]
+  matches: MatchRow[]
+  highlights: HighlightRow[]
+  premium_media_assets: PremiumMediaAssetRow[]
   subscription_plans: SubscriptionPlanRow[]
   subscriptions: SubscriptionRow[]
   subscription_provider_tokens: SubscriptionProviderTokenRowPlaceholder[]
@@ -50,6 +59,9 @@ export function createFakeAdminClient(initial?: Partial<FakeDbState>): {
 } {
   const state: FakeDbState = {
     profiles: clone(initial?.profiles ?? []),
+    matches: clone(initial?.matches ?? []),
+    highlights: clone(initial?.highlights ?? []),
+    premium_media_assets: clone(initial?.premium_media_assets ?? []),
     subscription_plans: clone(initial?.subscription_plans ?? []),
     subscriptions: clone(initial?.subscriptions ?? []),
     subscription_provider_tokens: clone(

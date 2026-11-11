@@ -129,6 +129,7 @@ describe('HTTP billing, webhook, and cron route handlers', () => {
       deps,
     )
     assert.equal(checkoutUnauth.status, 401)
+    assert.equal(checkoutUnauth.headers.get('cache-control'), 'no-store, max-age=0')
 
     const verifyUnauth = await handleVerifyCheckout(
       new Request(
@@ -137,15 +138,125 @@ describe('HTTP billing, webhook, and cron route handlers', () => {
       deps,
     )
     assert.equal(verifyUnauth.status, 401)
+    assert.equal(verifyUnauth.headers.get('cache-control'), 'no-store, max-age=0')
 
     const subUnauth = await handleGetUserSubscription(deps)
     assert.equal(subUnauth.status, 401)
+    assert.equal(subUnauth.headers.get('cache-control'), 'no-store, max-age=0')
 
     const cancelUnauth = await handleCancelUserSubscription(deps)
     assert.equal(cancelUnauth.status, 401)
+    assert.equal(cancelUnauth.headers.get('cache-control'), 'no-store, max-age=0')
 
     const manageUnauth = await handleCreateManageLink(deps)
     assert.equal(manageUnauth.status, 401)
+    assert.equal(manageUnauth.headers.get('cache-control'), 'no-store, max-age=0')
+  })
+
+  it('rejects malformed requests, invalid webhook payloads, and sets no-store on all billing error responses', async () => {
+    const { admin } = createFakeAdminClient({
+      profiles: [makeProfile()],
+      subscription_plans: [makePlan()],
+    })
+
+    const deps: BillingHandlerDeps = {
+      getSessionUser: async () => ({
+        id: 'user-route-1',
+        email: 'route-fan@example.com',
+      }),
+      getAdminClient: () => admin,
+      getProvider: () => makeRouteProvider(),
+      resolveOrigin: () => 'https://sportivra.example.com',
+      getExpectedCronSecret: () => 'super-cron-secret',
+    }
+
+    const badCheckoutJson = await handlePostCheckout(
+      new Request('https://sportivra.example.com/api/billing/checkout', {
+        method: 'POST',
+        body: '{invalid json',
+      }),
+      deps,
+    )
+    assert.equal(badCheckoutJson.status, 400)
+    assert.equal(badCheckoutJson.headers.get('cache-control'), 'no-store, max-age=0')
+    assert.equal(((await badCheckoutJson.json()) as { code: string }).code, 'INVALID_JSON')
+
+    const badPlanType = await handlePostCheckout(
+      new Request('https://sportivra.example.com/api/billing/checkout', {
+        method: 'POST',
+        body: JSON.stringify({ planCode: 123 }),
+      }),
+      deps,
+    )
+    assert.equal(badPlanType.status, 400)
+    assert.equal(badPlanType.headers.get('cache-control'), 'no-store, max-age=0')
+    assert.equal(((await badPlanType.json()) as { code: string }).code, 'PLAN_CODE_REQUIRED')
+
+    const badVerifyJson = await handleVerifyCheckout(
+      new Request('https://sportivra.example.com/api/billing/verify', {
+        method: 'POST',
+        body: 'not json',
+      }),
+      deps,
+    )
+    assert.equal(badVerifyJson.status, 400)
+    assert.equal(badVerifyJson.headers.get('cache-control'), 'no-store, max-age=0')
+    assert.equal(((await badVerifyJson.json()) as { code: string }).code, 'INVALID_JSON')
+
+    const signRaw = (raw: string) =>
+      crypto
+        .createHmac('sha512', ROUTE_WEBHOOK_SECRET)
+        .update(raw, 'utf8')
+        .digest('hex')
+
+    const malformedWebhook = '{bad-json'
+    const badWebhookJson = await handlePaystackWebhook(
+      new Request('https://sportivra.example.com/api/webhooks/paystack', {
+        method: 'POST',
+        headers: { 'x-paystack-signature': signRaw(malformedWebhook) },
+        body: malformedWebhook,
+      }),
+      deps,
+    )
+    assert.equal(badWebhookJson.status, 400)
+    assert.equal(badWebhookJson.headers.get('cache-control'), 'no-store, max-age=0')
+    assert.equal(((await badWebhookJson.json()) as { code: string }).code, 'INVALID_JSON')
+
+    const missingEventPayload = JSON.stringify({ data: { id: 1 } })
+    const missingEventRes = await handlePaystackWebhook(
+      new Request('https://sportivra.example.com/api/webhooks/paystack', {
+        method: 'POST',
+        headers: { 'x-paystack-signature': signRaw(missingEventPayload) },
+        body: missingEventPayload,
+      }),
+      deps,
+    )
+    assert.equal(missingEventRes.status, 400)
+    assert.equal(missingEventRes.headers.get('cache-control'), 'no-store, max-age=0')
+    assert.equal(((await missingEventRes.json()) as { code: string }).code, 'MISSING_EVENT_TYPE')
+
+    const badCronGrace = await handleExpireOverdueCron(
+      new Request(
+        'https://sportivra.example.com/api/cron/expire-subscriptions?grace=999%20years',
+        {
+          method: 'POST',
+          headers: { authorization: 'Bearer super-cron-secret' },
+        },
+      ),
+      deps,
+    )
+    assert.equal(badCronGrace.status, 400)
+    assert.equal(badCronGrace.headers.get('cache-control'), 'no-store, max-age=0')
+
+    // Unexpected internal error also returns Cache-Control: no-store
+    const internalErrRes = await handleGetUserSubscription({
+      ...deps,
+      getAdminClient: () => {
+        throw new Error('Unexpected storage outage')
+      },
+    })
+    assert.equal(internalErrRes.status, 500)
+    assert.equal(internalErrRes.headers.get('cache-control'), 'no-store, max-age=0')
   })
 
   it('completes checkout -> verify -> overview -> webhook -> manage -> cancel HTTP flow', async () => {
@@ -191,18 +302,34 @@ describe('HTTP billing, webhook, and cron route handlers', () => {
     assert.match(checkoutBody.reference, /^SPTV_/)
 
     const verifyRes = await handleVerifyCheckout(
-      new Request(
-        `https://sportivra.example.com/api/billing/verify?reference=${checkoutBody.reference}`,
-      ),
+      new Request('https://sportivra.example.com/api/billing/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reference: checkoutBody.reference }),
+      }),
       deps,
     )
     assert.equal(verifyRes.status, 200)
+    assert.equal(verifyRes.headers.get('cache-control'), 'no-store, max-age=0')
     const verifyBody = (await verifyRes.json()) as {
       status: string
       hasActivePremium: boolean
     }
     assert.equal(verifyBody.status, 'succeeded')
     assert.equal(verifyBody.hasActivePremium, true)
+
+    const verifyGetIdempotent = await handleVerifyCheckout(
+      new Request(
+        `https://sportivra.example.com/api/billing/verify?reference=${checkoutBody.reference}`,
+      ),
+      deps,
+    )
+    assert.equal(verifyGetIdempotent.status, 200)
+    assert.equal(
+      ((await verifyGetIdempotent.json()) as { alreadyProcessed: boolean })
+        .alreadyProcessed,
+      true,
+    )
 
     // Deliver subscription.create webhook with email_token
     const subCreateBody = JSON.stringify({
@@ -231,6 +358,7 @@ describe('HTTP billing, webhook, and cron route handlers', () => {
       deps,
     )
     assert.equal(badWebhookRes.status, 401)
+    assert.equal(badWebhookRes.headers.get('cache-control'), 'no-store, max-age=0')
 
     const okWebhookRes = await handlePaystackWebhook(
       new Request('https://sportivra.example.com/api/webhooks/paystack', {
@@ -273,6 +401,7 @@ describe('HTTP billing, webhook, and cron route handlers', () => {
       deps,
     )
     assert.equal(cronUnauth.status, 401)
+    assert.equal(cronUnauth.headers.get('cache-control'), 'no-store, max-age=0')
 
     const cronUnconfigured = await handleExpireOverdueCron(
       new Request('https://sportivra.example.com/api/cron/expire-subscriptions', {
@@ -281,6 +410,7 @@ describe('HTTP billing, webhook, and cron route handlers', () => {
       { ...deps, getExpectedCronSecret: () => '' },
     )
     assert.equal(cronUnconfigured.status, 503)
+    assert.equal(cronUnconfigured.headers.get('cache-control'), 'no-store, max-age=0')
 
     // Move period_end into the past and run authorized cron expiry
     state.subscriptions[0].current_period_end = '2026-01-01T00:00:00.000Z'

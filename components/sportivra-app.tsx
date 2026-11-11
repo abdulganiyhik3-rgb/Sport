@@ -7,9 +7,11 @@ import {
   Check,
   ChevronRight,
   Clock3,
+  CreditCard,
   Globe,
   Heart,
   Loader2,
+  Lock,
   Menu,
   Monitor,
   Moon,
@@ -17,6 +19,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  ShieldCheck,
   SlidersHorizontal,
   Smartphone,
   Sparkles,
@@ -35,6 +38,19 @@ import type {
   ProfileRow,
   SportRow,
 } from '@/lib/supabase/types'
+import {
+  BillingClientError,
+  extractPlanFeatures,
+  fetchBillingOverview,
+  fetchPublicPlans,
+  formatBillingIntervalLabel,
+  formatMinorCurrency,
+  getMembershipDisplayModel,
+  initializeCheckoutSession,
+  isSafePaystackRedirectUrl,
+  type PublicPlanSummary,
+  type UserBillingOverview,
+} from '@/lib/billing/client'
 import {
   fetchInitialCatalog,
   fetchMatchesFromSupabase,
@@ -258,9 +274,16 @@ function MatchCard({
             <span className="text-sm">{match.sport?.icon ?? '⚽'}</span>
             <span className="truncate">{match.league}</span>
           </span>
-          <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-[#0f7a06] dark:border-white/10 dark:bg-white/5 dark:text-[#39ff14]">
-            {dayLabel}
-          </span>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {match.access_tier === 'premium' && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-800 dark:border-[#39ff14]/45 dark:bg-[#39ff14]/15 dark:text-[#39ff14]">
+                <Lock size={9} /> Premium
+              </span>
+            )}
+            <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-[#0f7a06] dark:border-white/10 dark:bg-white/5 dark:text-[#39ff14]">
+              {dayLabel}
+            </span>
+          </div>
         </div>
 
         <button
@@ -419,6 +442,26 @@ export function SportivraApp({
     string | null
   >(null)
 
+  const [publicPlans, setPublicPlans] = useState<PublicPlanSummary[]>([])
+  const [paidPlansConfigured, setPaidPlansConfigured] = useState(false)
+  const [plansLoading, setPlansLoading] = useState(true)
+  const [plansError, setPlansError] = useState<string | null>(null)
+
+  const [billingOverview, setBillingOverview] =
+    useState<UserBillingOverview | null>(null)
+  const [billingLoading, setBillingLoading] = useState(false)
+  const [billingError, setBillingError] = useState<string | null>(null)
+
+  const [checkoutPlanCode, setCheckoutPlanCode] = useState<string | null>(null)
+  const [checkoutError, setCheckoutError] = useState<string | null>(null)
+  const [pendingCheckoutPlanCode, setPendingCheckoutPlanCode] = useState<
+    string | null
+  >(null)
+  const [pendingVerifyRef, setPendingVerifyRef] = useState<string | null>(null)
+  const [pendingMediaAuthNotice, setPendingMediaAuthNotice] = useState<
+    string | null
+  >(null)
+
   const [mobileNav, setMobileNav] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -490,13 +533,16 @@ export function SportivraApp({
     return () => clearTimeout(timer)
   }, [toast])
 
-  // Check URL query params after email confirmation / password recovery (/auth/callback)
+  // Check URL query params after auth or billing redirects
   useEffect(() => {
     if (typeof window === 'undefined') return
     const params = new URLSearchParams(window.location.search)
     const confirmed = params.get('confirmed')
     const recovery = params.get('recovery')
     const authError = params.get('auth_error')
+    const billingStatus = params.get('billing')
+    const accountTab = params.get('account')
+    const verifyRef = params.get('verify_ref')
 
     if (recovery === '1') {
       setAuthModalMode('recovery')
@@ -507,8 +553,107 @@ export function SportivraApp({
     } else if (authError) {
       showToast(authError, 'error')
       window.history.replaceState({}, '', window.location.pathname)
+    } else if (billingStatus === 'verified') {
+      showToast('SPORTIVRA Premium payment verified and active!', 'success')
+      window.history.replaceState({}, '', window.location.pathname)
+    } else if (accountTab === 'subscription') {
+      setAuthModalMode('account')
+      window.history.replaceState({}, '', window.location.pathname)
+    } else if (verifyRef) {
+      setPendingVerifyRef(verifyRef)
+      setAuthModalMode('signin')
+      window.history.replaceState({}, '', window.location.pathname)
     }
   }, [showToast])
+
+  const loadPublicPlans = useCallback(async () => {
+    setPlansLoading(true)
+    setPlansError(null)
+    try {
+      const data = await fetchPublicPlans()
+      setPublicPlans(data.plans)
+      setPaidPlansConfigured(data.paidPlansConfigured)
+    } catch (err) {
+      setPlansError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to load membership plans right now.',
+      )
+    } finally {
+      setPlansLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadPublicPlans()
+  }, [loadPublicPlans])
+
+  const loadBillingOverview = useCallback(async () => {
+    setBillingLoading(true)
+    setBillingError(null)
+    try {
+      const overview = await fetchBillingOverview()
+      setBillingOverview(overview)
+    } catch (err) {
+      if (err instanceof BillingClientError && err.statusCode === 401) {
+        setBillingOverview(null)
+        return
+      }
+      setBillingError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to load subscription details right now.',
+      )
+    } finally {
+      setBillingLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!user) {
+      setBillingOverview(null)
+      setBillingError(null)
+      return
+    }
+    void loadBillingOverview()
+  }, [loadBillingOverview, user])
+
+  const startPlanCheckout = useCallback(
+    async (planCode: string) => {
+      setCheckoutError(null)
+      const supabase = createClient()
+      const {
+        data: { user: activeUser },
+      } = await supabase.auth.getUser()
+
+      if (!activeUser) {
+        setPendingCheckoutPlanCode(planCode)
+        setAuthModalMode('signin')
+        return
+      }
+
+      setCheckoutPlanCode(planCode)
+      try {
+        const result = await initializeCheckoutSession(planCode)
+        if (!isSafePaystackRedirectUrl(result.authorizationUrl)) {
+          throw new Error(
+            'Received an unexpected payment redirect URL from the server.',
+          )
+        }
+        window.location.assign(result.authorizationUrl)
+      } catch (err) {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : 'Unable to start Paystack checkout right now.'
+        setCheckoutError(msg)
+        showToast(msg, 'error')
+      } finally {
+        setCheckoutPlanCode(null)
+      }
+    },
+    [showToast],
+  )
 
   const validSportIds = useMemo(
     () => new Set(sports.map((s) => s.id)),
@@ -956,6 +1101,25 @@ export function SportivraApp({
 
   const handleAuthSuccess = useCallback(async () => {
     const activeUserId = await loadUserAccountState()
+    await loadBillingOverview()
+
+    if (activeUserId && pendingVerifyRef) {
+      const refToVerify = pendingVerifyRef
+      setPendingVerifyRef(null)
+      window.location.assign(
+        `/billing/callback?reference=${encodeURIComponent(refToVerify)}`,
+      )
+      return
+    }
+
+    if (activeUserId && pendingCheckoutPlanCode) {
+      const planToStart = pendingCheckoutPlanCode
+      setPendingCheckoutPlanCode(null)
+      setAuthModalMode(null)
+      await startPlanCheckout(planToStart)
+      return
+    }
+
     if (activeUserId && pendingReminderMatchId) {
       const supabase = createClient()
       const { error } = await supabase.from('match_reminders').upsert(
@@ -970,10 +1134,27 @@ export function SportivraApp({
         showToast('Signed in and saved your match reminder!')
       }
       setPendingReminderMatchId(null)
-    } else {
-      showToast('Signed in to SPORTIVRA.')
+      return
     }
-  }, [loadUserAccountState, pendingReminderMatchId, showToast])
+
+    if (pendingMediaAuthNotice) {
+      setPendingMediaAuthNotice(null)
+      setAuthModalMode(null)
+      showToast('Signed in — verifying Premium playback.')
+      return
+    }
+
+    showToast('Signed in to SPORTIVRA.')
+  }, [
+    loadBillingOverview,
+    loadUserAccountState,
+    pendingCheckoutPlanCode,
+    pendingMediaAuthNotice,
+    pendingReminderMatchId,
+    pendingVerifyRef,
+    showToast,
+    startPlanCheckout,
+  ])
 
   const handleRemoveReminderFromAccount = useCallback(
     async (matchId: string) => {
@@ -2045,10 +2226,17 @@ export function SportivraApp({
                 <div className="absolute inset-0 bg-gradient-to-t from-[#0b1220] via-[#0b1220]/55 to-[#0b1220]/20" />
                 <div className="relative flex h-full min-h-[320px] flex-col justify-between p-5 sm:p-7">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="flex w-fit items-center gap-2 rounded-full bg-[#ff3b45] px-3 py-1 text-[10px] font-black uppercase tracking-widest text-white">
-                      <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                      Live{featuredLive.match_clock ? ` • ${featuredLive.match_clock}` : ''}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="flex w-fit items-center gap-2 rounded-full bg-[#ff3b45] px-3 py-1 text-[10px] font-black uppercase tracking-widest text-white">
+                        <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                        Live{featuredLive.match_clock ? ` • ${featuredLive.match_clock}` : ''}
+                      </span>
+                      {featuredLive.access_tier === 'premium' && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-[#39ff14]/45 bg-[#0b1220]/80 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-[#39ff14] backdrop-blur">
+                          <Lock size={10} /> Premium
+                        </span>
+                      )}
+                    </div>
                     <span className="rounded-full border border-white/15 bg-[#0b1220]/70 px-3 py-1 text-[11px] font-semibold text-white/85 backdrop-blur">
                       {featuredLive.league}
                     </span>
@@ -2125,10 +2313,17 @@ export function SportivraApp({
                     className="group flex min-h-[152px] cursor-pointer flex-col justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-[#0f7a06]/50 dark:border-white/10 dark:bg-[#0e1727] dark:shadow-none dark:hover:border-[#39ff14]/50"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-[#ff3b45] px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-white">
-                        <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                        Live
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-[#ff3b45] px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-white">
+                          <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                          Live
+                        </span>
+                        {match.access_tier === 'premium' && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-800 dark:border-[#39ff14]/45 dark:bg-[#39ff14]/15 dark:text-[#39ff14]">
+                            <Lock size={9} /> Premium
+                          </span>
+                        )}
+                      </div>
                       <span className="truncate text-[11px] font-semibold text-slate-500 dark:text-white/55">
                         {match.match_clock ? `${match.match_clock} • ` : ''}
                         {match.league}
@@ -3027,12 +3222,19 @@ export function SportivraApp({
                   <div className="absolute inset-0 bg-gradient-to-r from-[#0b1220]/95 via-[#0b1220]/75 to-[#0b1220]/20" />
                   <div className="relative flex h-full min-h-[248px] items-end justify-between gap-4 p-5 sm:p-7">
                     <div className="max-w-md">
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-[#39ff14]/35 bg-[#0b1220]/75 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-[#39ff14] backdrop-blur">
-                        {highlight.sport?.icon && (
-                          <span>{highlight.sport.icon}</span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-[#39ff14]/35 bg-[#0b1220]/75 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-[#39ff14] backdrop-blur">
+                          {highlight.sport?.icon && (
+                            <span>{highlight.sport.icon}</span>
+                          )}
+                          {highlight.badge}
+                        </span>
+                        {highlight.access_tier === 'premium' && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-[#39ff14]/45 bg-[#0b1220]/85 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-[#39ff14] backdrop-blur">
+                            <Lock size={10} /> Premium
+                          </span>
                         )}
-                        {highlight.badge}
-                      </span>
+                      </div>
                       <h3 className="mt-3 text-xl font-bold leading-snug text-white transition group-hover:text-[#39ff14] sm:text-2xl">
                         {highlight.title}
                       </h3>
@@ -3141,33 +3343,345 @@ export function SportivraApp({
         )}
       </section>
 
-      {/* SECTION 7: Promotional Membership Banner + Multi-Column Footer */}
-      <section
-        id="pricing"
-        className="relative mx-5 mb-16 scroll-mt-20 overflow-hidden rounded-3xl bg-gradient-to-r from-[#39ff14] via-[#34ea12] to-[#1aa80b] px-6 py-10 text-[#0b1220] shadow-lg sm:px-12 sm:py-12 lg:mx-auto lg:max-w-7xl dark:shadow-none"
-      >
-        <div className="relative z-10 max-w-xl">
-          <p className="text-[11px] font-black uppercase tracking-[0.25em] text-[#0b1220]/70">
-            Your sport. Your way.
-          </p>
-          <h2 className="mt-2.5 text-3xl font-black uppercase tracking-tight sm:text-4xl">
-            Go beyond the highlights.
-          </h2>
-          <p className="mt-3 max-w-md text-sm font-medium leading-6 text-[#0b1220]/80">
-            Create your SPORTIVRA account for personalised match reminders,
-            favourite sport tracking, highlights, and real-time match updates.
-          </p>
-          <button
-            type="button"
-            onClick={() => setAuthModalMode(user ? 'account' : 'signup')}
-            className="mt-6 inline-flex min-h-12 items-center gap-2 rounded-full bg-[#0b1220] px-6 text-sm font-bold text-white transition hover:bg-[#1f2937]"
+      {/* SECTION 7: SPORTIVRA Membership & Plans + Multi-Column Footer */}
+      {(() => {
+        const membershipDisplay = getMembershipDisplayModel({
+          plans: publicPlans,
+          paidPlansConfigured,
+        })
+        const freeFeatures = membershipDisplay.freePlan
+          ? extractPlanFeatures(membershipDisplay.freePlan.features)
+          : []
+        const hasActivePremium = Boolean(billingOverview?.hasActivePremium)
+        const activePlanCode = billingOverview?.subscription?.planCode ?? null
+
+        return (
+          <section
+            id="pricing"
+            className="mx-auto max-w-7xl scroll-mt-20 px-5 pb-16 pt-4 lg:px-8"
           >
-            {user ? 'Manage account' : 'Join SPORTIVRA'}{' '}
-            <ArrowRight size={16} />
-          </button>
-        </div>
-        <Trophy className="absolute -bottom-8 right-4 size-44 rotate-12 text-[#0b1220]/15 sm:right-14 sm:size-60" />
-      </section>
+            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-10 dark:border-white/10 dark:bg-[#0e1727] dark:shadow-none">
+              <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-6 dark:border-white/10">
+                <div>
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.26em] text-[#0f7a06] dark:text-[#39ff14]">
+                    SPORTIVRA Membership
+                  </p>
+                  <h2 className="text-2xl font-bold tracking-tight text-[#0b1220] sm:text-3xl dark:text-white">
+                    Choose your plan
+                  </h2>
+                  <p className="mt-2 max-w-2xl text-sm text-slate-600 dark:text-white/65">
+                    Start free with live scores, schedule reminders, and
+                    personalised teams, or upgrade when Premium broadcasts and
+                    highlights go live.
+                  </p>
+                </div>
+
+                {user && (
+                  <button
+                    type="button"
+                    onClick={() => setAuthModalMode('account')}
+                    className="inline-flex min-h-10 items-center gap-2 rounded-full border border-slate-300 bg-slate-50 px-4 text-xs font-bold text-[#0b1220] transition hover:border-[#0f7a06] dark:border-white/15 dark:bg-white/5 dark:text-white dark:hover:border-[#39ff14]"
+                  >
+                    <CreditCard
+                      size={14}
+                      className="text-[#0f7a06] dark:text-[#39ff14]"
+                    />
+                    {billingLoading && !billingOverview
+                      ? 'Checking membership...'
+                      : billingError && !billingOverview
+                        ? 'Membership status unavailable'
+                        : hasActivePremium
+                          ? 'Active: SPORTIVRA Premium'
+                          : 'Active: SPORTIVRA Free'}
+                  </button>
+                )}
+              </div>
+
+              {checkoutError && (
+                <div className="mt-5 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-xs font-medium text-red-700 dark:border-[#ff3b45]/40 dark:bg-[#ff3b45]/10 dark:text-[#ff8b91]">
+                  {checkoutError}
+                </div>
+              )}
+
+              {plansError && !plansLoading && (
+                <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-500/35 dark:bg-amber-500/10 dark:text-amber-200">
+                  <span>Could not load membership plans: {plansError}</span>
+                  <button
+                    type="button"
+                    onClick={() => void loadPublicPlans()}
+                    className="inline-flex items-center gap-1.5 font-bold underline"
+                  >
+                    <RefreshCw size={12} /> Retry
+                  </button>
+                </div>
+              )}
+
+              {plansLoading ? (
+                <div className="mt-6 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+                  <div className="min-h-[260px] animate-pulse rounded-2xl border border-slate-200 bg-slate-100 dark:border-white/10 dark:bg-[#0b1220]" />
+                  <div className="min-h-[260px] animate-pulse rounded-2xl border border-slate-200 bg-slate-100 dark:border-white/10 dark:bg-[#0b1220]" />
+                </div>
+              ) : (
+                <div
+                  className={`mt-6 grid gap-5 ${
+                    membershipDisplay.premiumPlans.length > 1
+                      ? 'md:grid-cols-3'
+                      : 'md:grid-cols-2'
+                  }`}
+                >
+                  {/* Free Membership Tier */}
+                  <article className="flex flex-col justify-between rounded-2xl border border-slate-200 bg-slate-50 p-6 dark:border-white/12 dark:bg-[#0b1220]">
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[10px] font-black uppercase tracking-widest text-slate-700 dark:border-white/15 dark:bg-white/5 dark:text-white/80">
+                          Free
+                        </span>
+                        {user && !hasActivePremium && (
+                          <span className="text-[11px] font-bold text-[#0f7a06] dark:text-[#39ff14]">
+                            Current plan
+                          </span>
+                        )}
+                      </div>
+                      <h3 className="mt-4 text-xl font-bold text-[#0b1220] dark:text-white">
+                        {membershipDisplay.freePlan?.name ?? 'SPORTIVRA Free'}
+                      </h3>
+                      <p className="mt-2 text-3xl font-black tracking-tight text-[#0b1220] dark:text-white">
+                        Free
+                        <span className="ml-1.5 text-xs font-semibold text-slate-500 dark:text-white/50">
+                          always included
+                        </span>
+                      </p>
+                      <p className="mt-3 text-xs leading-relaxed text-slate-600 dark:text-white/60">
+                        {membershipDisplay.freePlan?.description ??
+                          'Live scores, match schedule reminders, personalised teams and sports, plus free streams and highlights.'}
+                      </p>
+                      <ul className="mt-5 space-y-2.5 text-xs text-slate-700 dark:text-white/75">
+                        {(freeFeatures.length > 0
+                          ? freeFeatures
+                          : [
+                              'Real-time live scores & final results',
+                              'Personalised favourite sports & followed teams',
+                              'Saved match kick-off reminders',
+                              'Access to all free highlights & news',
+                            ]
+                        ).map((feat) => (
+                          <li key={feat} className="flex items-start gap-2">
+                            <Check
+                              size={14}
+                              className="mt-0.5 shrink-0 text-[#0f7a06] dark:text-[#39ff14]"
+                            />
+                            <span>{feat}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setAuthModalMode(user ? 'account' : 'signup')}
+                      className="mt-6 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full border border-slate-300 bg-white px-5 text-xs font-bold text-[#0b1220] transition hover:border-[#0f7a06] dark:border-white/15 dark:bg-white/5 dark:text-white dark:hover:border-[#39ff14]"
+                    >
+                      {user ? 'Manage account' : 'Create free account'}{' '}
+                      <ArrowRight size={14} />
+                    </button>
+                  </article>
+
+                  {/* Configured Paid Plans OR Graceful Coming-Soon State */}
+                  {!membershipDisplay.paidPlansConfigured ? (
+                    <article className="flex flex-col justify-between rounded-2xl border border-[#0f7a06]/30 bg-gradient-to-br from-[#39ff14]/15 via-emerald-50 to-white p-6 dark:border-[#39ff14]/35 dark:from-[#39ff14]/12 dark:via-[#0b1220] dark:to-[#0e1727]">
+                      <div>
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-[#39ff14] px-3 py-1 text-[10px] font-black uppercase tracking-widest text-[#0b1220]">
+                          <Sparkles size={11} /> SPORTIVRA Premium
+                        </span>
+                        <h3 className="mt-4 text-xl font-bold text-[#0b1220] dark:text-white">
+                          {membershipDisplay.comingSoonMessage ??
+                            'Premium plans coming soon'}
+                        </h3>
+                        <p className="mt-3 text-xs leading-relaxed text-slate-600 dark:text-white/70">
+                          Paid membership tiers and regional pricing are not
+                          published yet. Free access remains open while Premium
+                          plans and Paystack billing configuration are finalized.
+                        </p>
+                        <ul className="mt-5 space-y-2.5 text-xs text-slate-700 dark:text-white/75">
+                          <li className="flex items-start gap-2">
+                            <ShieldCheck
+                              size={14}
+                              className="mt-0.5 shrink-0 text-[#0f7a06] dark:text-[#39ff14]"
+                            />
+                            <span>
+                              Server-verified Paystack subscriptions (no
+                              unverified upgrades)
+                            </span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <ShieldCheck
+                              size={14}
+                              className="mt-0.5 shrink-0 text-[#0f7a06] dark:text-[#39ff14]"
+                            />
+                            <span>
+                              Protected access to licensed Premium matches &amp;
+                              highlights
+                            </span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <ShieldCheck
+                              size={14}
+                              className="mt-0.5 shrink-0 text-[#0f7a06] dark:text-[#39ff14]"
+                            />
+                            <span>
+                              Self-serve cancellation and billing history inside
+                              your Account
+                            </span>
+                          </li>
+                        </ul>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setAuthModalMode(user ? 'account' : 'signup')
+                        }
+                        className="mt-6 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-[#0b1220] px-5 text-xs font-bold text-white transition hover:bg-[#1f2937] dark:bg-[#39ff14] dark:text-[#0b1220] dark:hover:bg-[#a8ff9d]"
+                      >
+                        {user
+                          ? 'Open account & billing'
+                          : 'Join free for updates'}{' '}
+                        <ArrowRight size={14} />
+                      </button>
+                    </article>
+                  ) : (
+                    membershipDisplay.premiumPlans.map((plan) => {
+                      const formattedPrice = formatMinorCurrency(
+                        plan.amountMinor,
+                        plan.currency,
+                      )
+                      const intervalLabel = formatBillingIntervalLabel(
+                        plan.billingInterval,
+                      )
+                      const planFeatures = extractPlanFeatures(plan.features)
+                      const isCurrentPlan =
+                        hasActivePremium && activePlanCode === plan.code
+                      const isSubmitting = checkoutPlanCode === plan.code
+
+                      return (
+                        <article
+                          key={plan.code}
+                          className="flex flex-col justify-between rounded-2xl border border-[#0f7a06]/40 bg-gradient-to-br from-[#39ff14]/15 via-emerald-50 to-white p-6 dark:border-[#39ff14]/45 dark:from-[#39ff14]/12 dark:via-[#0b1220] dark:to-[#0e1727]"
+                        >
+                          <div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-[#39ff14] px-3 py-1 text-[10px] font-black uppercase tracking-widest text-[#0b1220]">
+                                <Sparkles size={11} /> Premium
+                              </span>
+                              {isCurrentPlan && (
+                                <span className="text-[11px] font-bold text-[#0f7a06] dark:text-[#39ff14]">
+                                  Current plan
+                                </span>
+                              )}
+                            </div>
+
+                            <h3 className="mt-4 text-xl font-bold text-[#0b1220] dark:text-white">
+                              {plan.name}
+                            </h3>
+
+                            {formattedPrice && (
+                              <p className="mt-2 text-3xl font-black tracking-tight text-[#0b1220] dark:text-white">
+                                {formattedPrice}
+                                {intervalLabel && (
+                                  <span className="ml-1 text-xs font-semibold text-slate-600 dark:text-white/60">
+                                    {intervalLabel}
+                                  </span>
+                                )}
+                              </p>
+                            )}
+
+                            {plan.description && (
+                              <p className="mt-3 text-xs leading-relaxed text-slate-600 dark:text-white/70">
+                                {plan.description}
+                              </p>
+                            )}
+
+                            {planFeatures.length > 0 && (
+                              <ul className="mt-5 space-y-2.5 text-xs text-slate-700 dark:text-white/80">
+                                {planFeatures.map((feat) => (
+                                  <li
+                                    key={feat}
+                                    className="flex items-start gap-2"
+                                  >
+                                    <Check
+                                      size={14}
+                                      className="mt-0.5 shrink-0 text-[#0f7a06] dark:text-[#39ff14]"
+                                    />
+                                    <span>{feat}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+
+                          <div className="mt-6">
+                            {isCurrentPlan ? (
+                              <button
+                                type="button"
+                                onClick={() => setAuthModalMode('account')}
+                                className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full border border-[#0f7a06] bg-white px-5 text-xs font-bold text-[#0f7a06] transition hover:bg-emerald-50 dark:border-[#39ff14] dark:bg-transparent dark:text-[#39ff14] dark:hover:bg-[#39ff14]/10"
+                              >
+                                Manage subscription
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={
+                                  checkoutPlanCode !== null ||
+                                  hasActivePremium
+                                }
+                                onClick={() => void startPlanCheckout(plan.code)}
+                                className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-[#39ff14] px-5 text-xs font-bold text-[#0b1220] transition hover:bg-[#5cff3d] disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-[#a8ff9d]"
+                              >
+                                {isSubmitting ? (
+                                  <>
+                                    <Loader2
+                                      size={14}
+                                      className="animate-spin"
+                                    />{' '}
+                                    Redirecting to Paystack...
+                                  </>
+                                ) : hasActivePremium ? (
+                                  'Already subscribed'
+                                ) : user ? (
+                                  <>
+                                    Upgrade with Paystack{' '}
+                                    <ArrowRight size={14} />
+                                  </>
+                                ) : (
+                                  <>
+                                    Sign in to upgrade <ArrowRight size={14} />
+                                  </>
+                                )}
+                              </button>
+                            )}
+                          </div>
+                        </article>
+                      )
+                    })
+                  )}
+                </div>
+              )}
+
+              <p className="mt-6 flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-white/45">
+                <ShieldCheck
+                  size={13}
+                  className="shrink-0 text-[#0f7a06] dark:text-[#39ff14]"
+                />
+                <span>
+                  Payments are processed by Paystack and verified strictly on
+                  the SPORTIVRA server before granting Premium access.
+                </span>
+              </p>
+            </div>
+          </section>
+        )
+      })()}
 
       <footer className="border-t border-slate-200 bg-[#eef2f6] px-5 pb-10 pt-12 text-slate-600 lg:px-8 dark:border-white/8 dark:bg-[#080e19] dark:text-white/55">
         <div className="mx-auto max-w-7xl">
@@ -3232,6 +3746,14 @@ export function SportivraApp({
                     className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
                   >
                     My Teams
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="#pricing"
+                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
+                  >
+                    Membership
                   </a>
                 </li>
               </ul>
@@ -3374,6 +3896,31 @@ export function SportivraApp({
         </div>
       </footer>
 
+      {mediaViewer && (
+        <MediaViewerModal
+          item={mediaViewer}
+          user={user}
+          remindedIds={remindedIds}
+          favoriteTeams={favoriteTeamSet}
+          serverDateUtc={serverDateUtc}
+          onToggleReminder={toggleReminder}
+          onToggleFollowTeam={toggleFollowTeam}
+          onRequestSignIn={() => {
+            setPendingMediaAuthNotice(
+              'Sign in with your SPORTIVRA Premium account to watch this stream.',
+            )
+            setAuthModalMode('signin')
+          }}
+          onRequestUpgrade={() => {
+            setMediaViewer(null)
+            document
+              .getElementById('pricing')
+              ?.scrollIntoView({ behavior: 'smooth' })
+          }}
+          onClose={() => setMediaViewer(null)}
+        />
+      )}
+
       {authModalMode && (
         <AuthAccountModal
           initialMode={authModalMode}
@@ -3384,13 +3931,37 @@ export function SportivraApp({
           favoriteTeams={favoriteTeams}
           remindedMatches={remindedMatches}
           pendingReminderMessage={
-            pendingReminderMatchId
-              ? 'Sign in or create an account to save match reminders to SPORTIVRA.'
-              : null
+            pendingVerifyRef
+              ? 'Sign in to verify your Paystack payment and activate your subscription.'
+              : pendingCheckoutPlanCode
+                ? 'Sign in or create an account to continue to Paystack checkout.'
+                : pendingMediaAuthNotice
+                  ? pendingMediaAuthNotice
+                  : pendingReminderMatchId
+                    ? 'Sign in or create an account to save match reminders to SPORTIVRA.'
+                    : null
           }
+          billingOverview={billingOverview}
+          billingLoading={billingLoading}
+          billingError={billingError}
+          paidPlansConfigured={paidPlansConfigured}
+          onRefreshBilling={loadBillingOverview}
+          onBillingChanged={async () => {
+            await loadUserAccountState()
+            await loadBillingOverview()
+          }}
+          onNavigateToPlans={() => {
+            setAuthModalMode(null)
+            document
+              .getElementById('pricing')
+              ?.scrollIntoView({ behavior: 'smooth' })
+          }}
           onClose={() => {
             setAuthModalMode(null)
             setPendingReminderMatchId(null)
+            setPendingCheckoutPlanCode(null)
+            setPendingVerifyRef(null)
+            setPendingMediaAuthNotice(null)
           }}
           onAuthSuccess={handleAuthSuccess}
           onProfileUpdated={(updated) => {
@@ -3408,24 +3979,14 @@ export function SportivraApp({
           onSignedOut={() => {
             setUser(null)
             setProfile(null)
+            setBillingOverview(null)
+            setBillingError(null)
             setRemindedIds(new Set())
             syncingGuestUserIdRef.current = null
             lastSyncedUserIdRef.current = null
             applyPreferencesState({ favoriteSportIds: [], favoriteTeams: [] })
             showToast('Signed out of SPORTIVRA.')
           }}
-        />
-      )}
-
-      {mediaViewer && (
-        <MediaViewerModal
-          item={mediaViewer}
-          remindedIds={remindedIds}
-          favoriteTeams={favoriteTeamSet}
-          serverDateUtc={serverDateUtc}
-          onToggleReminder={toggleReminder}
-          onToggleFollowTeam={toggleFollowTeam}
-          onClose={() => setMediaViewer(null)}
         />
       )}
 
