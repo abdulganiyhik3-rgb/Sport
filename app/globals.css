@@ -49,7 +49,41 @@ html.dark select:focus-visible {
 }
 
 .brand-mark { display: inline-flex; height: 34px; width: 34px; align-items: center; justify-content: center; border-radius: 10px 3px 10px 3px; background: #39ff14; color: #0b1220; font-size: 23px; font-weight: 900; font-style: italic; line-height: 1; transform: skew(-8deg); }
-.hero { min-height: clamp(540px, 78vh, 660px); }
+.hero { min-height: clamp(540px, 78vh, 660px); background: #f5f7fa; }
+html.dark .hero { background: #0b1220; }
+.hero-scrim-light,
+.hero-scrim-dark {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+.hero-scrim-light {
+  opacity: 1;
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, 0.04) 0%, rgba(248, 250, 252, 0.22) 38%, rgba(245, 247, 250, 0.88) 72%, rgba(245, 247, 250, 0.96) 100%),
+    linear-gradient(90deg, rgba(248, 250, 252, 0.55) 0%, rgba(248, 250, 252, 0.14) 55%, transparent 100%);
+}
+html.dark .hero-scrim-light { opacity: 0; }
+.hero-scrim-dark {
+  opacity: 0;
+  background:
+    linear-gradient(180deg, rgba(11, 18, 32, 0.34) 0%, rgba(11, 18, 32, 0.14) 28%, rgba(11, 18, 32, 0.78) 66%, rgba(11, 18, 32, 0.96) 100%),
+    linear-gradient(90deg, rgba(11, 18, 32, 0.48) 0%, rgba(11, 18, 32, 0.1) 60%, transparent 100%);
+}
+html.dark .hero-scrim-dark { opacity: 1; }
+@media (min-width: 768px) {
+  .hero-scrim-light {
+    background:
+      linear-gradient(90deg, rgba(248, 250, 252, 0.95) 0%, rgba(248, 250, 252, 0.86) 28%, rgba(248, 250, 252, 0.42) 48%, rgba(248, 250, 252, 0) 68%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, transparent 45%, rgba(245, 247, 250, 0.72) 100%);
+  }
+  .hero-scrim-dark {
+    background:
+      linear-gradient(90deg, rgba(11, 18, 32, 0.94) 0%, rgba(11, 18, 32, 0.84) 28%, rgba(11, 18, 32, 0.42) 48%, rgba(11, 18, 32, 0.1) 70%),
+      linear-gradient(180deg, rgba(11, 18, 32, 0.32) 0%, rgba(11, 18, 32, 0.04) 42%, rgba(11, 18, 32, 0.82) 100%);
+  }
+}
 .match-card { border: 1px solid rgba(255,255,255,.1); background: rgba(14,23,39,.72); border-radius: 16px; padding: 20px; transition: border-color .25s, transform .25s, background .25s, box-shadow .25s; }
 .match-card:hover { border-color: rgba(57,255,20,.45); background: rgba(31,41,55,.78); transform: translateY(-3px); }
 html.light .match-card { border-color: rgba(15,23,42,.1); background: #ffffff; box-shadow: 0 1px 3px rgba(15,23,42,.06); }

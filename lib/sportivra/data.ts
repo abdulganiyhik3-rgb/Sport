@@ -128,7 +128,8 @@ export async function fetchInitialCatalog(
       reminderMatchIds: [],
       serverDateUtc,
       serverHydrated: false,
-      loadError: err instanceof Error ? err.message : 'Unable to fetch catalog',
+      loadError:
+        err instanceof Error ? err.message : 'Unable to load the live catalogue.',
     }
   }
 }
