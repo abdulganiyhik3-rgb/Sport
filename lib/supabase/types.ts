@@ -240,6 +240,8 @@ export type Database = {
           email: string | null
           full_name: string | null
           favorite_sport_id: string | null
+          favorite_sport_ids: string[]
+          favorite_teams: string[]
           membership_tier: 'free' | 'pro'
           membership_status: 'active' | 'inactive'
           created_at: string
@@ -250,6 +252,8 @@ export type Database = {
           email?: string | null
           full_name?: string | null
           favorite_sport_id?: string | null
+          favorite_sport_ids?: string[]
+          favorite_teams?: string[]
           membership_tier?: 'free' | 'pro'
           membership_status?: 'active' | 'inactive'
           created_at?: string
@@ -260,6 +264,8 @@ export type Database = {
           email?: string | null
           full_name?: string | null
           favorite_sport_id?: string | null
+          favorite_sport_ids?: string[]
+          favorite_teams?: string[]
           membership_tier?: 'free' | 'pro'
           membership_status?: 'active' | 'inactive'
           created_at?: string
