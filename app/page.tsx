@@ -1,70 +1,35 @@
-'use client'
-
-import { useState } from 'react'
+import { createClient } from '@/lib/supabase/server'
 import {
-  ArrowRight,
-  CalendarDays,
-  Check,
-  ChevronRight,
-  CirclePlay,
-  Clock3,
-  Flame,
-  Menu,
-  Play,
-  Search,
-  Star,
-  Trophy,
-  X,
-} from 'lucide-react'
+  fetchInitialCatalog,
+  type InitialCatalogData,
+} from '@/lib/sportivra/data'
+import { SportivraApp } from '@/components/sportivra-app'
 
-const navItems = ['Home', 'Live', 'Sports', 'Schedule', 'Scores', 'Highlights', 'News']
-const sports = [
-  ['Football', '⚽', '1,240 events', 'from-[#183c35]'],
-  ['Basketball', '◉', '876 events', 'from-[#3d2c1a]'],
-  ['Tennis', '◌', '540 events', 'from-[#243b24]'],
-  ['Cricket', '◆', '312 events', 'from-[#172f3a]'],
-  ['Boxing', '✦', '198 events', 'from-[#3a2227]'],
-  ['Motorsport', '⌁', '164 events', 'from-[#27253b]'],
-]
+export const dynamic = 'force-dynamic'
 
-const matches = [
-  { sport: 'Football', league: 'UEFA Champions League', home: 'Arsenal', away: 'Inter Milan', time: '20:00', date: 'TODAY', icon: '⚽', live: false },
-  { sport: 'Basketball', league: 'NBA • Regular Season', home: 'Boston Celtics', away: 'LA Lakers', time: '21:30', date: 'TODAY', icon: '◉', live: false },
-  { sport: 'Tennis', league: 'ATP Finals • Turin', home: 'C. Alcaraz', away: 'J. Sinner', time: '16:00', date: 'TOMORROW', icon: '◌', live: false },
-]
+export default async function HomePage() {
+  const supabase = await createClient()
+  const serverDateUtc = new Date().toISOString().slice(0, 10)
 
-const news = [
-  { category: 'Football', title: 'The new generation redefining the beautiful game', image: 'https://images.unsplash.com/photo-1579952363873-27f3bade9f55?auto=format&fit=crop&w=1000&q=80', time: '3 min read' },
-  { category: 'Motorsport', title: 'Inside the high-speed battle for the 2026 title', image: 'https://images.unsplash.com/photo-1503736334956-4c8f8e92946d?auto=format&fit=crop&w=1000&q=80', time: '5 min read' },
-  { category: 'Tennis', title: 'The courts are set. A season of rivalries begins', image: 'https://images.unsplash.com/photo-1554068865-24cecd4e34b8?auto=format&fit=crop&w=1000&q=80', time: '4 min read' },
-]
+  const fallbackForClientHydration: InitialCatalogData = {
+    sports: [],
+    matches: [],
+    highlights: [],
+    newsArticles: [],
+    user: null,
+    profile: null,
+    reminderMatchIds: [],
+    serverDateUtc,
+    serverHydrated: false,
+    loadError: null,
+  }
 
-function Brand() {
-  return <a href="#top" className="flex items-center gap-2.5" aria-label="SPORTIVRA home"><span className="brand-mark">S</span><span className="text-[18px] font-black tracking-[0.18em] text-white">SPORTIVRA</span></a>
+  const initialData = await Promise.race([
+    fetchInitialCatalog(supabase),
+    new Promise<InitialCatalogData>((resolve) =>
+      setTimeout(() => resolve(fallbackForClientHydration), 1800),
+    ),
+  ])
+
+  return <SportivraApp initialData={initialData} />
 }
-
-function SectionHeading({ eyebrow, title, action }: { eyebrow: string; title: string; action?: string }) {
-  return <div className="mb-6 flex items-end justify-between gap-4"><div><p className="mb-2 text-[11px] font-bold uppercase tracking-[0.26em] text-[#39ff14]">{eyebrow}</p><h2 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">{title}</h2></div>{action && <a href="#schedule" className="hidden items-center gap-1 text-sm font-semibold text-white/60 transition hover:text-[#39ff14] sm:flex">{action}<ChevronRight size={16}/></a>}</div>
-}
-
-function MatchCard({ match }: { match: typeof matches[number] }) {
-  return <article className="match-card group"><div className="mb-5 flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.16em] text-white/45"><span className="flex items-center gap-2"><span className="text-base">{match.icon}</span>{match.sport}</span><span>{match.date}</span></div><p className="mb-4 text-xs text-white/45">{match.league}</p><div className="space-y-3 text-sm font-semibold"><div className="flex items-center justify-between"><span>{match.home}</span><span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/8 text-xs">{match.home[0]}</span></div><div className="flex items-center justify-between"><span>{match.away}</span><span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/8 text-xs">{match.away[0]}</span></div></div><div className="mt-5 flex items-center justify-between border-t border-white/8 pt-4"><span className="flex items-center gap-1.5 text-xs text-white/50"><Clock3 size={13}/>{match.time} UTC</span><button className="flex min-h-11 items-center gap-1 text-xs font-bold text-[#39ff14]" aria-label={`Set reminder for ${match.home} versus ${match.away}`}>Remind <ChevronRight size={14}/></button></div></article>
-}
-
-function App() {
-  const [mobileNav, setMobileNav] = useState(false)
-  const [searchOpen, setSearchOpen] = useState(false)
-  return <main id="top" className="min-h-screen overflow-hidden bg-[#0b1220] text-white">
-    <header className="absolute inset-x-0 top-0 z-20 border-b border-white/10 bg-[#0b1220]/60 backdrop-blur-xl"><div className="mx-auto flex h-[76px] max-w-7xl items-center justify-between px-5 lg:px-8"><Brand/><nav className="hidden items-center gap-7 lg:flex">{navItems.map((item, i) => <a key={item} href={i === 0 ? '#top' : `#${item.toLowerCase()}`} className={`text-[13px] font-semibold transition hover:text-[#39ff14] ${i === 0 ? 'text-[#39ff14]' : 'text-white/60'}`}>{item}</a>)}</nav><div className="flex items-center gap-2"><button onClick={() => setSearchOpen(!searchOpen)} className="flex h-11 w-11 items-center justify-center rounded-full text-white/70 hover:bg-white/10 hover:text-white" aria-label="Search"><Search size={19}/></button><a href="#pricing" className="hidden min-h-11 items-center rounded-full px-4 text-sm font-semibold text-white/75 hover:bg-white/10 sm:flex">Sign in</a><a href="#pricing" className="hidden min-h-11 items-center rounded-full bg-[#39ff14] px-5 text-sm font-bold text-[#0b1220] transition hover:bg-[#a8ff9d] sm:flex">Join now</a><button onClick={() => setMobileNav(!mobileNav)} className="flex h-11 w-11 items-center justify-center rounded-full bg-white/8 lg:hidden" aria-label={mobileNav ? 'Close menu' : 'Open menu'}>{mobileNav ? <X size={20}/> : <Menu size={20}/>}</button></div></div>{searchOpen && <div className="border-t border-white/10 px-5 py-3"><div className="mx-auto flex max-w-7xl items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4"><Search size={18} className="text-white/40"/><input autoFocus placeholder="Search sports, teams, players..." className="h-12 w-full bg-transparent text-base outline-none placeholder:text-white/35"/></div></div>}{mobileNav && <nav className="border-t border-white/10 bg-[#0b1220] px-5 py-4 lg:hidden">{navItems.map(item => <a key={item} href={`#${item.toLowerCase()}`} onClick={() => setMobileNav(false)} className="flex min-h-11 items-center border-b border-white/8 text-sm font-semibold text-white/75 last:border-0">{item}</a>)}</nav>}</header>
-    <section className="hero relative flex min-h-[680px] items-end"><div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=2200&q=85')] bg-cover bg-center"/><div className="absolute inset-0 bg-gradient-to-r from-[#0b1220] via-[#0b1220]/80 to-[#0b1220]/10"/><div className="absolute inset-0 bg-gradient-to-t from-[#0b1220] via-transparent to-[#0b1220]/50"/><div className="relative mx-auto w-full max-w-7xl px-5 pb-20 pt-36 lg:px-8 lg:pb-28"><div className="max-w-2xl"><div className="mb-6 flex items-center gap-3 text-[11px] font-bold uppercase tracking-[0.25em] text-[#39ff14]"><span className="h-2 w-2 animate-pulse rounded-full bg-[#39ff14]"/> The world of sport, in one place</div><h1 className="max-w-xl text-5xl font-black leading-[0.98] tracking-[-0.04em] text-white sm:text-7xl">ALL SPORTS.<br/><span className="text-[#39ff14]">LIVE</span> AND<br/>ON DEMAND.</h1><p className="mt-7 max-w-md text-base leading-7 text-white/65 sm:text-lg">Your front row seat to every sport, every story and every unforgettable moment. Welcome to the future of sports entertainment.</p><div className="mt-9 flex flex-wrap gap-3"><a href="#live" className="flex min-h-12 items-center gap-2 rounded-full bg-[#39ff14] px-6 text-sm font-bold text-[#0b1220] transition hover:scale-[1.02] hover:bg-[#a8ff9d]"><Play size={16} fill="currentColor"/> Watch now</a><a href="#sports" className="flex min-h-12 items-center gap-2 rounded-full border border-white/20 bg-white/5 px-6 text-sm font-bold text-white backdrop-blur transition hover:bg-white/10">Explore sports <ArrowRight size={16}/></a></div></div></div></section>
-    <section id="live" className="mx-auto max-w-7xl px-5 py-16 lg:px-8"><SectionHeading eyebrow="Happening now" title="Live on SPORTIVRA" action="View all live"/><div className="grid gap-4 lg:grid-cols-3"><article className="live-feature group relative min-h-[300px] overflow-hidden rounded-2xl lg:col-span-2"><img src="https://images.unsplash.com/photo-1553778263-73a83bab9b0c?auto=format&fit=crop&w=1400&q=80" alt="Football player on the pitch" className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-105"/><div className="absolute inset-0 bg-gradient-to-t from-[#0b1220] via-[#0b1220]/40 to-transparent"/><div className="relative flex h-full min-h-[300px] flex-col justify-end p-5 sm:p-7"><span className="mb-auto flex w-fit items-center gap-2 rounded-full bg-[#ff3b45] px-3 py-1.5 text-[10px] font-black uppercase tracking-widest"><span className="h-1.5 w-1.5 rounded-full bg-white"/> Live now</span><p className="text-xs font-bold uppercase tracking-[0.18em] text-white/55">Premier League</p><h3 className="mt-2 text-2xl font-bold">Manchester City <span className="text-white/40">vs</span> Liverpool</h3><div className="mt-4 flex items-center gap-4"><span className="text-3xl font-black">2 — 1</span><span className="rounded-md bg-white/10 px-2 py-1 text-xs text-white/60">68&apos;</span><a href="#match" className="ml-auto flex h-11 w-11 items-center justify-center rounded-full bg-[#39ff14] text-[#0b1220] transition group-hover:scale-110" aria-label="Watch match"><Play size={16} fill="currentColor"/></a></div></div></article><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1"><article className="flex min-h-[142px] items-center gap-4 rounded-2xl border border-white/10 bg-[#1f2937]/60 p-4"><div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl bg-[url('https://images.unsplash.com/photo-1546519638-68e109498ffc?auto=format&fit=crop&w=300&q=80')] bg-cover text-2xl">◉</div><div><span className="text-[10px] font-bold uppercase tracking-widest text-[#39ff14]">Live • Basketball</span><h3 className="mt-2 font-bold">Warriors vs Suns</h3><p className="mt-1 text-xs text-white/45">Q3 &nbsp; 74 — 71</p></div></article><article className="flex min-h-[142px] items-center gap-4 rounded-2xl border border-white/10 bg-[#1f2937]/60 p-4"><div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl bg-[url('https://images.unsplash.com/photo-1530915365347-5b9a1a2c3f22?auto=format&fit=crop&w=300&q=80')] bg-cover text-2xl">◌</div><div><span className="text-[10px] font-bold uppercase tracking-widest text-[#39ff14]">Live • Tennis</span><h3 className="mt-2 font-bold">United Cup</h3><p className="mt-1 text-xs text-white/45">Set 2 &nbsp; 4 — 3</p></div></article></div></div></section>
-    <section id="sports" className="border-y border-white/6 bg-[#0e1727] px-5 py-16 lg:px-8"><div className="mx-auto max-w-7xl"><SectionHeading eyebrow="Find your game" title="Explore sports" action="All sports"/><div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">{sports.map(([name, icon, count, gradient]) => <a href={`#${name.toLowerCase()}`} key={name} className={`sport-tile bg-gradient-to-br ${gradient}`}><span className="text-3xl text-white/90">{icon}</span><div className="mt-8"><h3 className="font-bold">{name}</h3><p className="mt-1 text-xs text-white/45">{count}</p></div><ChevronRight size={15} className="absolute bottom-4 right-4 text-white/40"/></a>)}</div></div></section>
-    <section id="schedule" className="mx-auto max-w-7xl px-5 py-16 lg:px-8"><SectionHeading eyebrow="Plan your watchlist" title="Upcoming matches" action="Full schedule"/><div className="grid gap-4 md:grid-cols-3">{matches.map(match => <MatchCard key={match.home} match={match}/>)}</div></section>
-    <section id="highlights" className="border-y border-white/6 bg-[#0e1727] px-5 py-16 lg:px-8"><div className="mx-auto max-w-7xl"><SectionHeading eyebrow="Catch up" title="Featured highlights" action="See all highlights"/><div className="grid gap-4 md:grid-cols-3"><article className="highlight-card md:col-span-2"><img src="https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1400&q=80" alt="Football stadium under lights"/><div className="absolute inset-0 bg-gradient-to-t from-[#0b1220] to-transparent"/><div className="absolute bottom-0 p-5 sm:p-7"><span className="text-[10px] font-bold uppercase tracking-widest text-[#39ff14]">Matchday stories</span><h3 className="mt-2 max-w-lg text-2xl font-bold">The moments that made this weekend unforgettable</h3><button className="mt-4 flex min-h-11 items-center gap-2 text-sm font-bold text-white"><CirclePlay size={18} className="text-[#39ff14]"/> Play highlight</button></div></article><article className="highlight-card"><img src="https://images.unsplash.com/photo-1517466787929-bc90951d0974?auto=format&fit=crop&w=900&q=80" alt="Athlete training on a track"/><div className="absolute inset-0 bg-gradient-to-t from-[#0b1220] to-transparent"/><div className="absolute bottom-0 p-5"><span className="text-[10px] font-bold uppercase tracking-widest text-[#39ff14]">Originals</span><h3 className="mt-2 text-xl font-bold">Built different: the next wave</h3></div></article></div></div></section>
-    <section id="news" className="mx-auto max-w-7xl px-5 py-16 lg:px-8"><SectionHeading eyebrow="Beyond the scoreboard" title="The latest from sport" action="Read all news"/><div className="grid gap-5 md:grid-cols-3">{news.map(item => <article key={item.title} className="group"><div className="relative mb-4 aspect-[1.5] overflow-hidden rounded-xl"><img src={item.image} alt="" className="h-full w-full object-cover transition duration-500 group-hover:scale-105"/><span className="absolute left-3 top-3 rounded-full bg-[#0b1220]/80 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-[#39ff14] backdrop-blur">{item.category}</span></div><h3 className="text-lg font-bold leading-snug transition group-hover:text-[#39ff14]">{item.title}</h3><p className="mt-3 text-xs text-white/40">{item.time} &nbsp; • &nbsp; 12 Nov 2026</p></article>)}</div></section>
-    <section id="pricing" className="relative mx-5 mb-16 overflow-hidden rounded-3xl bg-[#39ff14] px-6 py-12 text-[#0b1220] sm:px-12 lg:mx-auto lg:max-w-7xl"><div className="relative z-10 max-w-xl"><p className="text-[11px] font-black uppercase tracking-[0.25em] text-[#0b1220]/60">Your sport. Your way.</p><h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">Go beyond the highlights.</h2><p className="mt-4 max-w-md text-sm leading-6 text-[#0b1220]/70">Unlock the full SPORTIVRA experience with premium access to live broadcasts, exclusive originals and an ad-free experience.</p><a href="#join" className="mt-7 inline-flex min-h-12 items-center gap-2 rounded-full bg-[#0b1220] px-6 text-sm font-bold text-white transition hover:bg-[#1f2937]">Join SPORTIVRA <ArrowRight size={16}/></a></div><Trophy className="absolute -bottom-10 right-6 size-52 rotate-12 text-[#0b1220]/10 sm:right-16 sm:size-64"/></section>
-    <footer className="border-t border-white/8 px-5 py-10 lg:px-8"><div className="mx-auto flex max-w-7xl flex-col gap-8 sm:flex-row sm:items-center sm:justify-between"><div><Brand/><p className="mt-3 text-xs text-white/40">Every sport. Every moment.</p></div><div className="flex flex-wrap gap-x-6 gap-y-3 text-xs text-white/45"><a href="#about" className="hover:text-white">About us</a><a href="#careers" className="hover:text-white">Careers</a><a href="#help" className="hover:text-white">Help centre</a><a href="#privacy" className="hover:text-white">Privacy</a><a href="#terms" className="hover:text-white">Terms</a></div></div><div className="mx-auto mt-8 max-w-7xl border-t border-white/8 pt-5 text-xs text-white/30">© 2026 SPORTIVRA. Demonstration experience — licensed content integrations coming soon.</div></footer>
-  </main>
-}
-
-export default App

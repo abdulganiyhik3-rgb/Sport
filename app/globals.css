@@ -29,14 +29,14 @@ a { text-decoration: none; }
 button, a { -webkit-tap-highlight-color: transparent; }
 
 .brand-mark { display: inline-flex; height: 34px; width: 34px; align-items: center; justify-content: center; border-radius: 10px 3px 10px 3px; background: #39ff14; color: #0b1220; font-size: 23px; font-weight: 900; font-style: italic; line-height: 1; transform: skew(-8deg); }
-.hero { min-height: 680px; }
-.match-card { border: 1px solid rgba(255,255,255,.1); background: rgba(31,41,55,.58); border-radius: 16px; padding: 20px; transition: border-color .25s, transform .25s, background .25s; }
-.match-card:hover { border-color: rgba(57,255,20,.45); background: rgba(31,41,55,.85); transform: translateY(-3px); }
+.hero { min-height: 660px; }
+.match-card { border: 1px solid rgba(255,255,255,.1); background: rgba(14,23,39,.72); border-radius: 16px; padding: 20px; transition: border-color .25s, transform .25s, background .25s; }
+.match-card:hover { border-color: rgba(57,255,20,.45); background: rgba(31,41,55,.78); transform: translateY(-3px); }
 .sport-tile { position: relative; min-height: 172px; overflow: hidden; border: 1px solid rgba(255,255,255,.09); border-radius: 16px; padding: 17px; transition: transform .25s, border-color .25s; }
-.sport-tile::after { content: ''; position: absolute; inset: auto -25px -45px auto; height: 110px; width: 110px; border-radius: 999px; background: rgba(255,255,255,.06); }
+.sport-tile::after { content: ''; position: absolute; inset: auto -25px -45px auto; height: 110px; width: 110px; border-radius: 999px; background: rgba(255,255,255,.05); pointer-events: none; }
 .sport-tile:hover { transform: translateY(-4px); border-color: rgba(57,255,20,.5); }
-.highlight-card { position: relative; min-height: 320px; overflow: hidden; border-radius: 16px; }
+.highlight-card { position: relative; min-height: 248px; overflow: hidden; border-radius: 16px; border: 1px solid rgba(255,255,255,.1); }
 .highlight-card img { position: absolute; inset: 0; height: 100%; width: 100%; object-fit: cover; transition: transform .6s; }
 .highlight-card:hover img { transform: scale(1.05); }
 .live-feature { border: 1px solid rgba(255,255,255,.1); }
-@media (max-width: 639px) { .hero { min-height: 650px; } .highlight-card { min-height: 280px; } }
+@media (max-width: 639px) { .hero { min-height: 600px; } .highlight-card { min-height: 220px; } }
