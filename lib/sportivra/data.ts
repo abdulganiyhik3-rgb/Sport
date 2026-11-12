@@ -288,3 +288,39 @@ export function formatArticleDate(isoString: string): string {
 export function formatEventCount(count: number): string {
   return `${count.toLocaleString('en-US')} events`
 }
+
+export function resolveActiveNavSectionId(args: {
+  scrollY: number
+  innerHeight: number
+  scrollHeight: number
+  sections: Array<{ id: string; offsetTop: number }>
+}): string {
+  const { scrollY, innerHeight, scrollHeight, sections } = args
+  const pricingSection = sections.find((section) => section.id === 'pricing')
+  const maxScrollY = Math.max(0, scrollHeight - innerHeight)
+  const nearBottom =
+    maxScrollY > 0 &&
+    scrollY > 0 &&
+    innerHeight + scrollY >= scrollHeight - 40
+
+  if (
+    pricingSection &&
+    (scrollY + 130 >= pricingSection.offsetTop || nearBottom)
+  ) {
+    return 'pricing'
+  }
+
+  if (scrollY < 260) {
+    return 'top'
+  }
+
+  const offset = scrollY + 130
+  for (const section of sections) {
+    if (section.id === 'pricing') continue
+    if (offset >= section.offsetTop) {
+      return section.id
+    }
+  }
+
+  return 'top'
+}

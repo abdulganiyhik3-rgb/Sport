@@ -19,6 +19,7 @@ import {
   extractPaystackPlanRef,
   hasActivePremiumAccess,
   isPlanCheckoutReady,
+  isPlanPricingPublished,
   isSubscriptionEntitled,
 } from './access'
 import type { BillingProvider, VerifiedTransactionResult } from './provider'
@@ -63,6 +64,7 @@ export interface PublicPlanSummary {
 export interface PublicPlansResponse {
   plans: PublicPlanSummary[]
   paidPlansConfigured: boolean
+  checkoutConfigured: boolean
 }
 
 export interface SubscriptionSummary {
@@ -156,7 +158,10 @@ function toJson(record: Record<string, unknown>): Json {
   return record as unknown as Json
 }
 
-function serializePlan(plan: SubscriptionPlanRow): PublicPlanSummary {
+function serializePlan(
+  plan: SubscriptionPlanRow,
+  paystackSecretConfigured = Boolean(process.env.PAYSTACK_SECRET_KEY?.trim()),
+): PublicPlanSummary {
   return {
     id: plan.id,
     code: plan.code,
@@ -168,7 +173,7 @@ function serializePlan(plan: SubscriptionPlanRow): PublicPlanSummary {
     currency: plan.currency,
     features: plan.features,
     sortOrder: plan.sort_order,
-    checkoutReady: isPlanCheckoutReady(plan),
+    checkoutReady: isPlanCheckoutReady(plan) && paystackSecretConfigured,
   }
 }
 
@@ -308,6 +313,7 @@ async function upsertProviderTokens(
 
 export async function listPublicPlans(
   admin: AdminSupabaseClient,
+  options: { paystackSecretConfigured?: boolean } = {},
 ): Promise<PublicPlansResponse> {
   const { data, error } = await admin
     .from('subscription_plans')
@@ -323,19 +329,32 @@ export async function listPublicPlans(
     )
   }
 
+  const paystackSecretConfigured =
+    options.paystackSecretConfigured ??
+    Boolean(process.env.PAYSTACK_SECRET_KEY?.trim())
   const rows = (data ?? []) as SubscriptionPlanRow[]
-  // Only expose free plans or fully configured, Paystack-linked paid plans.
+  // Expose active free plans and paid plans with valid published pricing.
+  // Checkout stays disabled until real Paystack plan codes and server Paystack keys exist.
   const visiblePlans = rows
-    .filter((plan) => plan.tier === 'free' || isPlanCheckoutReady(plan))
-    .map(serializePlan)
+    .filter((plan) => plan.tier === 'free' || isPlanPricingPublished(plan))
+    .map((plan) => serializePlan(plan, paystackSecretConfigured))
 
   const paidPlansConfigured = visiblePlans.some(
+    (plan) =>
+      plan.tier === 'premium' &&
+      typeof plan.amountMinor === 'number' &&
+      plan.amountMinor > 0 &&
+      Boolean(plan.currency),
+  )
+
+  const checkoutConfigured = visiblePlans.some(
     (plan) => plan.tier === 'premium' && plan.checkoutReady,
   )
 
   return {
     plans: visiblePlans,
     paidPlansConfigured,
+    checkoutConfigured,
   }
 }
 

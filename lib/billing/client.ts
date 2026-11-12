@@ -27,6 +27,7 @@ export interface PublicPlanSummary {
 export interface PublicPlansResponse {
   plans: PublicPlanSummary[]
   paidPlansConfigured: boolean
+  checkoutConfigured?: boolean
 }
 
 export interface SubscriptionSummary {
@@ -200,10 +201,77 @@ export function extractPlanFeatures(features: Json): string[] {
     .filter((entry) => entry.length > 0)
 }
 
+export interface AnnualPlanSavings {
+  monthlyPlanCode: string
+  yearlyPlanCode: string
+  currency: string
+  monthlyAmountMinor: number
+  annualizedMonthlyMinor: number
+  yearlyAmountMinor: number
+  savingsMinor: number
+  savingsPercent: number
+  equivalentMonthlyMinor: number
+  monthsFree: number | null
+}
+
+export function calculateAnnualPlanSavings(
+  plans: PublicPlanSummary[],
+): AnnualPlanSavings | null {
+  const monthly = plans.find(
+    (plan) =>
+      plan.tier === 'premium' &&
+      plan.billingInterval === 'month' &&
+      typeof plan.amountMinor === 'number' &&
+      plan.amountMinor > 0 &&
+      typeof plan.currency === 'string' &&
+      /^[A-Z]{3}$/i.test(plan.currency.trim()),
+  )
+  if (!monthly || !monthly.amountMinor || !monthly.currency) return null
+
+  const monthlyCurrency = monthly.currency.trim().toUpperCase()
+  const yearly = plans.find(
+    (plan) =>
+      plan.tier === 'premium' &&
+      plan.billingInterval === 'year' &&
+      typeof plan.amountMinor === 'number' &&
+      plan.amountMinor > 0 &&
+      typeof plan.currency === 'string' &&
+      plan.currency.trim().toUpperCase() === monthlyCurrency,
+  )
+  if (!yearly || !yearly.amountMinor) return null
+
+  const annualizedMonthlyMinor = monthly.amountMinor * 12
+  const savingsMinor = annualizedMonthlyMinor - yearly.amountMinor
+  if (savingsMinor <= 0) return null
+
+  const savingsPercent = Math.round((savingsMinor / annualizedMonthlyMinor) * 100)
+  const equivalentMonthlyMinor = Math.round(yearly.amountMinor / 12)
+  const exactMonthsFree = savingsMinor / monthly.amountMinor
+  const monthsFree =
+    Number.isInteger(exactMonthsFree) && exactMonthsFree >= 1
+      ? exactMonthsFree
+      : null
+
+  return {
+    monthlyPlanCode: monthly.code,
+    yearlyPlanCode: yearly.code,
+    currency: monthlyCurrency,
+    monthlyAmountMinor: monthly.amountMinor,
+    annualizedMonthlyMinor,
+    yearlyAmountMinor: yearly.amountMinor,
+    savingsMinor,
+    savingsPercent,
+    equivalentMonthlyMinor,
+    monthsFree,
+  }
+}
+
 export interface MembershipDisplayModel {
   freePlan: PublicPlanSummary | null
   premiumPlans: PublicPlanSummary[]
   paidPlansConfigured: boolean
+  checkoutEnabled: boolean
+  annualSavings: AnnualPlanSavings | null
   comingSoonMessage: string | null
 }
 
@@ -213,19 +281,58 @@ export function getMembershipDisplayModel(
   const plans = response?.plans ?? []
   const freePlan = plans.find((plan) => plan.tier === 'free') ?? null
   const premiumPlans = plans.filter(
-    (plan) => plan.tier === 'premium' && plan.checkoutReady,
+    (plan) =>
+      plan.tier === 'premium' &&
+      typeof plan.amountMinor === 'number' &&
+      plan.amountMinor > 0 &&
+      typeof plan.currency === 'string' &&
+      /^[A-Z]{3}$/i.test(plan.currency.trim()),
   )
   const paidPlansConfigured =
     Boolean(response?.paidPlansConfigured) && premiumPlans.length > 0
+  const checkoutEnabled =
+    paidPlansConfigured &&
+    response?.checkoutConfigured !== false &&
+    premiumPlans.some((plan) => plan.checkoutReady)
 
   return {
     freePlan,
     premiumPlans,
     paidPlansConfigured,
+    checkoutEnabled,
+    annualSavings: calculateAnnualPlanSavings(premiumPlans),
     comingSoonMessage: paidPlansConfigured
       ? null
       : 'Premium plans coming soon',
   }
+}
+
+export type AccountPlansDisplayState =
+  | { kind: 'loading'; display: MembershipDisplayModel }
+  | { kind: 'error'; errorMessage: string; display: MembershipDisplayModel }
+  | { kind: 'empty'; display: MembershipDisplayModel }
+  | { kind: 'ready'; display: MembershipDisplayModel }
+
+export function describeAccountPlansState(
+  response: PublicPlansResponse | null,
+  options: { loading?: boolean; error?: string | null } = {},
+): AccountPlansDisplayState {
+  const display = getMembershipDisplayModel(response)
+
+  if (display.paidPlansConfigured) {
+    return { kind: 'ready', display }
+  }
+
+  if (options.loading) {
+    return { kind: 'loading', display }
+  }
+
+  const cleanError = options.error?.trim() || ''
+  if (cleanError) {
+    return { kind: 'error', errorMessage: cleanError, display }
+  }
+
+  return { kind: 'empty', display }
 }
 
 export function isSafePaystackRedirectUrl(rawUrl: string): boolean {
