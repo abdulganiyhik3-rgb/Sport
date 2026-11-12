@@ -58,6 +58,7 @@ import {
   formatEventCount,
   formatMatchDayLabel,
   formatUtcTime,
+  resolveActiveNavSectionId,
   searchCatalog,
   type InitialCatalogData,
   type SearchResults,
@@ -98,6 +99,7 @@ const navItems = [
   { label: 'Scores', href: '#scores', id: 'scores' },
   { label: 'Highlights', href: '#highlights', id: 'highlights' },
   { label: 'News', href: '#news', id: 'news' },
+  { label: 'Membership', href: '#pricing', id: 'pricing' },
 ] as const
 
 const sportSubtitles: Record<string, string> = {
@@ -444,6 +446,7 @@ export function SportivraApp({
 
   const [publicPlans, setPublicPlans] = useState<PublicPlanSummary[]>([])
   const [paidPlansConfigured, setPaidPlansConfigured] = useState(false)
+  const [paidCheckoutConfigured, setPaidCheckoutConfigured] = useState(false)
   const [plansLoading, setPlansLoading] = useState(true)
   const [plansError, setPlansError] = useState<string | null>(null)
 
@@ -573,6 +576,12 @@ export function SportivraApp({
       const data = await fetchPublicPlans()
       setPublicPlans(data.plans)
       setPaidPlansConfigured(data.paidPlansConfigured)
+      setPaidCheckoutConfigured(
+        data.checkoutConfigured ??
+          data.plans.some(
+            (plan) => plan.tier === 'premium' && plan.checkoutReady,
+          ),
+      )
     } catch (err) {
       setPlansError(
         err instanceof Error
@@ -860,6 +869,7 @@ export function SportivraApp({
   // Keep desktop & mobile navigation highlight synced to scroll position
   useEffect(() => {
     const trackedIds = [
+      'pricing',
       'news',
       'highlights',
       'schedule',
@@ -868,23 +878,31 @@ export function SportivraApp({
       'live',
     ]
     const onScroll = () => {
-      const offset = window.scrollY + 130
-      if (window.scrollY < 260) {
-        setActiveNavId('top')
-        return
-      }
-      for (const id of trackedIds) {
-        const el = document.getElementById(id)
-        if (el && offset >= el.offsetTop) {
-          setActiveNavId(id)
-          return
-        }
-      }
-      setActiveNavId('top')
+      const sections = trackedIds
+        .map((id) => {
+          const el = document.getElementById(id)
+          return el ? { id, offsetTop: el.offsetTop } : null
+        })
+        .filter((entry): entry is { id: string; offsetTop: number } =>
+          Boolean(entry),
+        )
+
+      setActiveNavId(
+        resolveActiveNavSectionId({
+          scrollY: window.scrollY,
+          innerHeight: window.innerHeight,
+          scrollHeight: document.documentElement.scrollHeight,
+          sections,
+        }),
+      )
     }
 
     window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
+    window.addEventListener('resize', onScroll, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onScroll)
+    }
   }, [])
 
   const loadUserAccountState = useCallback(async () => {
@@ -1433,6 +1451,10 @@ export function SportivraApp({
     if (item.id === 'scores') {
       e.preventDefault()
       void handleOpenMatchCenter('finished')
+    } else if (item.id === 'pricing') {
+      e.preventDefault()
+      setActiveNavId('pricing')
+      document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' })
     } else {
       setActiveNavId(item.id)
     }
@@ -1449,7 +1471,7 @@ export function SportivraApp({
           <Brand />
 
           <nav
-            className="hidden items-center gap-5 xl:gap-7 lg:flex"
+            className="hidden items-center gap-4 xl:gap-6 lg:flex"
             aria-label="Primary navigation"
           >
             {navItems.map((item) => {
@@ -3348,6 +3370,7 @@ export function SportivraApp({
         const membershipDisplay = getMembershipDisplayModel({
           plans: publicPlans,
           paidPlansConfigured,
+          checkoutConfigured: paidCheckoutConfigured,
         })
         const freeFeatures = membershipDisplay.freePlan
           ? extractPlanFeatures(membershipDisplay.freePlan.features)
@@ -3371,8 +3394,8 @@ export function SportivraApp({
                   </h2>
                   <p className="mt-2 max-w-2xl text-sm text-slate-600 dark:text-white/65">
                     Start free with live scores, schedule reminders, and
-                    personalised teams, or upgrade when Premium broadcasts and
-                    highlights go live.
+                    personalised teams, or choose Monthly or Yearly Premium for
+                    licensed live sports broadcasts and ad-free viewing.
                   </p>
                 </div>
 
@@ -3402,6 +3425,15 @@ export function SportivraApp({
                   {checkoutError}
                 </div>
               )}
+
+              {membershipDisplay.paidPlansConfigured &&
+                !membershipDisplay.checkoutEnabled && (
+                  <div className="mt-5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-500/35 dark:bg-amber-500/10 dark:text-amber-200">
+                    Official SPORTIVRA Premium pricing is displayed below.
+                    Online checkout is disabled until real Paystack plan codes
+                    and server payment configuration are added.
+                  </div>
+                )}
 
               {plansError && !plansLoading && (
                 <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-500/35 dark:bg-amber-500/10 dark:text-amber-200">
@@ -3562,6 +3594,12 @@ export function SportivraApp({
                       const isCurrentPlan =
                         hasActivePremium && activePlanCode === plan.code
                       const isSubmitting = checkoutPlanCode === plan.code
+                      const annualSavings =
+                        plan.billingInterval === 'year' &&
+                        membershipDisplay.annualSavings?.yearlyPlanCode ===
+                          plan.code
+                          ? membershipDisplay.annualSavings
+                          : null
 
                       return (
                         <article
@@ -3569,14 +3607,27 @@ export function SportivraApp({
                           className="flex flex-col justify-between rounded-2xl border border-[#0f7a06]/40 bg-gradient-to-br from-[#39ff14]/15 via-emerald-50 to-white p-6 dark:border-[#39ff14]/45 dark:from-[#39ff14]/12 dark:via-[#0b1220] dark:to-[#0e1727]"
                         >
                           <div>
-                            <div className="flex items-center justify-between gap-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
                               <span className="inline-flex items-center gap-1 rounded-full bg-[#39ff14] px-3 py-1 text-[10px] font-black uppercase tracking-widest text-[#0b1220]">
                                 <Sparkles size={11} /> Premium
                               </span>
-                              {isCurrentPlan && (
+                              {isCurrentPlan ? (
                                 <span className="text-[11px] font-bold text-[#0f7a06] dark:text-[#39ff14]">
                                   Current plan
                                 </span>
+                              ) : (
+                                annualSavings && (
+                                  <span className="rounded-full border border-[#0f7a06]/30 bg-white px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-[#0f7a06] dark:border-[#39ff14]/40 dark:bg-[#0b1220] dark:text-[#39ff14]">
+                                    Save{' '}
+                                    {formatMinorCurrency(
+                                      annualSavings.savingsMinor,
+                                      annualSavings.currency,
+                                    )}
+                                    {annualSavings.monthsFree
+                                      ? ` • ${annualSavings.monthsFree} months free`
+                                      : ` • ${annualSavings.savingsPercent}% off`}
+                                  </span>
+                                )
                               )}
                             </div>
 
@@ -3592,6 +3643,22 @@ export function SportivraApp({
                                     {intervalLabel}
                                   </span>
                                 )}
+                              </p>
+                            )}
+
+                            {annualSavings && (
+                              <p className="mt-1.5 text-xs font-bold text-[#0f7a06] dark:text-[#39ff14]">
+                                Save{' '}
+                                {formatMinorCurrency(
+                                  annualSavings.savingsMinor,
+                                  annualSavings.currency,
+                                )}
+                                /year ({annualSavings.savingsPercent}% off vs{' '}
+                                {formatMinorCurrency(
+                                  annualSavings.annualizedMonthlyMinor,
+                                  annualSavings.currency,
+                                )}
+                                /year billed monthly)
                               </p>
                             )}
 
@@ -3627,6 +3694,14 @@ export function SportivraApp({
                                 className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full border border-[#0f7a06] bg-white px-5 text-xs font-bold text-[#0f7a06] transition hover:bg-emerald-50 dark:border-[#39ff14] dark:bg-transparent dark:text-[#39ff14] dark:hover:bg-[#39ff14]/10"
                               >
                                 Manage subscription
+                              </button>
+                            ) : !plan.checkoutReady ? (
+                              <button
+                                type="button"
+                                disabled
+                                className="inline-flex min-h-11 w-full cursor-not-allowed items-center justify-center gap-2 rounded-full border border-slate-300 bg-slate-100 px-5 text-xs font-bold text-slate-500 dark:border-white/15 dark:bg-white/5 dark:text-white/50"
+                              >
+                                Checkout disabled — Paystack setup pending
                               </button>
                             ) : (
                               <button
@@ -3944,8 +4019,13 @@ export function SportivraApp({
           billingOverview={billingOverview}
           billingLoading={billingLoading}
           billingError={billingError}
+          publicPlans={publicPlans}
           paidPlansConfigured={paidPlansConfigured}
+          paidCheckoutConfigured={paidCheckoutConfigured}
+          plansLoading={plansLoading}
+          plansError={plansError}
           onRefreshBilling={loadBillingOverview}
+          onRetryPlans={loadPublicPlans}
           onBillingChanged={async () => {
             await loadUserAccountState()
             await loadBillingOverview()

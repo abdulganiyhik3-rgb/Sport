@@ -125,23 +125,28 @@ function signWebhook(body: unknown): { rawBody: string; signature: string } {
 }
 
 describe('Unconfigured plan safety', () => {
-  it('returns empty plans when no plans exist and filters out unpriced/unlinked paid plans', async () => {
+  it('hides unpriced drafts, exposes published pricing with checkoutReady=false until Paystack plan codes and keys exist', async () => {
     const emptyDb = createFakeAdminClient()
     const emptyRes = await listPublicPlans(emptyDb.admin)
-    assert.deepEqual(emptyRes, { plans: [], paidPlansConfigured: false })
+    assert.deepEqual(emptyRes, {
+      plans: [],
+      paidPlansConfigured: false,
+      checkoutConfigured: false,
+    })
 
-    const unconfiguredDb = createFakeAdminClient({
+    const publishedWithoutPaystackDb = createFakeAdminClient({
       subscription_plans: [
         makeReadyPlan({
           id: 'p-free',
           code: 'free',
-          name: 'Free',
+          name: 'SPORTIVRA Free',
           tier: 'free',
           billing_interval: 'none',
-          amount_minor: null,
+          amount_minor: 0,
           currency: null,
           provider: null,
           provider_plan_refs: {},
+          sort_order: 0,
         }),
         makeReadyPlan({
           id: 'p-unpriced',
@@ -149,21 +154,107 @@ describe('Unconfigured plan safety', () => {
           amount_minor: null,
           currency: null,
           provider_plan_refs: {},
+          sort_order: 1,
         }),
         makeReadyPlan({
-          id: 'p-unlinked',
-          code: 'premium_no_pln',
-          amount_minor: 1000,
+          id: 'p-monthly',
+          code: 'premium_monthly',
+          name: 'Monthly Premium',
+          billing_interval: 'month',
+          amount_minor: 350000,
           currency: 'NGN',
           provider_plan_refs: {},
+          features: [
+            'Licensed live sports broadcasts',
+            'Premium highlights and additional premium content',
+            'Ad-free viewing where supported',
+          ],
+          sort_order: 2,
+        }),
+        makeReadyPlan({
+          id: 'p-yearly',
+          code: 'premium_yearly',
+          name: 'Yearly Premium',
+          billing_interval: 'year',
+          amount_minor: 3500000,
+          currency: 'NGN',
+          provider_plan_refs: {},
+          features: [
+            'Licensed live sports broadcasts',
+            'Premium highlights and additional premium content',
+            'Ad-free viewing where supported',
+          ],
+          sort_order: 3,
         }),
       ],
     })
 
-    const filteredRes = await listPublicPlans(unconfiguredDb.admin)
-    assert.equal(filteredRes.paidPlansConfigured, false)
-    assert.equal(filteredRes.plans.length, 1)
-    assert.equal(filteredRes.plans[0].code, 'free')
+    const res = await listPublicPlans(publishedWithoutPaystackDb.admin, {
+      paystackSecretConfigured: false,
+    })
+    assert.equal(res.paidPlansConfigured, true)
+    assert.equal(res.checkoutConfigured, false)
+    assert.deepEqual(
+      res.plans.map((p) => ({
+        code: p.code,
+        amountMinor: p.amountMinor,
+        currency: p.currency,
+        checkoutReady: p.checkoutReady,
+      })),
+      [
+        { code: 'free', amountMinor: 0, currency: null, checkoutReady: false },
+        {
+          code: 'premium_monthly',
+          amountMinor: 350000,
+          currency: 'NGN',
+          checkoutReady: false,
+        },
+        {
+          code: 'premium_yearly',
+          amountMinor: 3500000,
+          currency: 'NGN',
+          checkoutReady: false,
+        },
+      ],
+    )
+
+    // Even if Paystack plan codes are present in DB, missing server PAYSTACK_SECRET_KEY keeps checkoutReady=false
+    const withPlanCodeNoSecretDb = createFakeAdminClient({
+      subscription_plans: [
+        makeReadyPlan({
+          code: 'premium_monthly',
+          amount_minor: 350000,
+          currency: 'NGN',
+          provider_plan_refs: { paystack: 'PLN_real_code' },
+        }),
+      ],
+    })
+    const noSecretRes = await listPublicPlans(withPlanCodeNoSecretDb.admin, {
+      paystackSecretConfigured: false,
+    })
+    assert.equal(noSecretRes.paidPlansConfigured, true)
+    assert.equal(noSecretRes.checkoutConfigured, false)
+    assert.equal(noSecretRes.plans[0].checkoutReady, false)
+
+    // When listPublicPlans is called without options, it reads process.env.PAYSTACK_SECRET_KEY directly
+    const prevKey = process.env.PAYSTACK_SECRET_KEY
+    delete process.env.PAYSTACK_SECRET_KEY
+    try {
+      const defaultUnsetRes = await listPublicPlans(withPlanCodeNoSecretDb.admin)
+      assert.equal(defaultUnsetRes.checkoutConfigured, false)
+      assert.equal(defaultUnsetRes.plans[0].checkoutReady, false)
+
+      process.env.PAYSTACK_SECRET_KEY = 'sk_test_mock_env_secret'
+      const defaultSetRes = await listPublicPlans(withPlanCodeNoSecretDb.admin)
+      assert.equal(defaultSetRes.checkoutConfigured, true)
+      assert.equal(defaultSetRes.plans[0].checkoutReady, true)
+    } finally {
+      if (prevKey === undefined) {
+        delete process.env.PAYSTACK_SECRET_KEY
+      } else {
+        process.env.PAYSTACK_SECRET_KEY = prevKey
+      }
+    }
   })
 
   it('refuses checkout when plan pricing or Paystack plan code is not configured', async () => {

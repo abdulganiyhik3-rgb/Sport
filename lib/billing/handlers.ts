@@ -96,7 +96,10 @@ export async function handleGetBillingPlans(
       client = await createServerSupabaseClient()
     }
 
-    const result = await listPublicPlans(client)
+    const paystackSecretConfigured = Boolean(
+      deps.getProvider || process.env.PAYSTACK_SECRET_KEY?.trim(),
+    )
+    const result = await listPublicPlans(client, { paystackSecretConfigured })
     return noStoreJson(result, 200)
   } catch (err) {
     return jsonError(err)

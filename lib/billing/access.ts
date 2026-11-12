@@ -40,16 +40,10 @@ export function extractPaystackPlanRef(
   return null
 }
 
-export function isPlanCheckoutReady(
+export function isPlanPricingPublished(
   plan: Pick<
     SubscriptionPlanRow,
-    | 'is_active'
-    | 'tier'
-    | 'billing_interval'
-    | 'amount_minor'
-    | 'currency'
-    | 'provider'
-    | 'provider_plan_refs'
+    'is_active' | 'tier' | 'billing_interval' | 'amount_minor' | 'currency'
   >,
 ): boolean {
   if (!plan.is_active) return false
@@ -70,10 +64,22 @@ export function isPlanCheckoutReady(
   ) {
     return false
   }
-  if (!extractPaystackPlanRef(plan)) {
-    return false
-  }
   return true
+}
+
+export function isPlanCheckoutReady(
+  plan: Pick<
+    SubscriptionPlanRow,
+    | 'is_active'
+    | 'tier'
+    | 'billing_interval'
+    | 'amount_minor'
+    | 'currency'
+    | 'provider'
+    | 'provider_plan_refs'
+  >,
+): boolean {
+  return isPlanPricingPublished(plan) && Boolean(extractPaystackPlanRef(plan))
 }
 
 export function isSubscriptionEntitled(

@@ -19,7 +19,9 @@ import type { ProfileRow, SubscriptionPlanRow } from './helpers/types-shim'
 
 const ROUTE_WEBHOOK_SECRET = 'sk_test_route_webhook_secret'
 
-function makePlan(): SubscriptionPlanRow {
+function makePlan(
+  overrides: Partial<SubscriptionPlanRow> = {},
+): SubscriptionPlanRow {
   return {
     id: 'plan-1',
     code: 'premium_monthly',
@@ -36,6 +38,7 @@ function makePlan(): SubscriptionPlanRow {
     sort_order: 1,
     created_at: '2026-11-11T00:00:00.000Z',
     updated_at: '2026-11-11T00:00:00.000Z',
+    ...overrides,
   }
 }
 
@@ -119,6 +122,7 @@ describe('HTTP billing, webhook, and cron route handlers', () => {
     assert.deepEqual(await plansRes.json(), {
       plans: [],
       paidPlansConfigured: false,
+      checkoutConfigured: false,
     })
 
     const checkoutUnauth = await handlePostCheckout(
@@ -281,11 +285,96 @@ describe('HTTP billing, webhook, and cron route handlers', () => {
     const plansJson = (await plansRes.json()) as {
       plans: Array<{ code: string; checkoutReady: boolean }>
       paidPlansConfigured: boolean
+      checkoutConfigured: boolean
     }
     assert.equal(plansJson.paidPlansConfigured, true)
+    assert.equal(plansJson.checkoutConfigured, true)
     assert.equal(plansJson.plans[0].checkoutReady, true)
     // Ensure internal provider_plan_refs are not leaked on public plans endpoint
     assert.equal(JSON.stringify(plansJson).includes('PLN_route_01'), false)
+
+    // Without Paystack plan codes or PAYSTACK_SECRET_KEY, public plans still expose approved prices
+    // with checkoutConfigured=false and checkout endpoints strictly return 409 PLAN_NOT_CONFIGURED.
+    const prevPaystackKey = process.env.PAYSTACK_SECRET_KEY
+    delete process.env.PAYSTACK_SECRET_KEY
+    try {
+      const noCodesDb = createFakeAdminClient({
+        profiles: [makeProfile()],
+        subscription_plans: [
+          makePlan({
+            id: 'plan-free',
+            code: 'free',
+            name: 'SPORTIVRA Free',
+            tier: 'free',
+            billing_interval: 'none',
+            amount_minor: 0,
+            currency: null,
+            provider: null,
+            provider_plan_refs: {},
+            sort_order: 0,
+          }),
+          makePlan({
+            id: 'plan-monthly',
+            code: 'premium_monthly',
+            name: 'Monthly Premium',
+            billing_interval: 'month',
+            amount_minor: 350000,
+            currency: 'NGN',
+            provider_plan_refs: {},
+            sort_order: 1,
+          }),
+          makePlan({
+            id: 'plan-yearly',
+            code: 'premium_yearly',
+            name: 'Yearly Premium',
+            billing_interval: 'year',
+            amount_minor: 3500000,
+            currency: 'NGN',
+            provider_plan_refs: {},
+            sort_order: 2,
+          }),
+        ],
+      })
+
+      const publicNoCodesRes = await handleGetBillingPlans({
+        getAdminClient: () => noCodesDb.admin,
+      })
+      assert.equal(publicNoCodesRes.status, 200)
+      const publicNoCodesJson = (await publicNoCodesRes.json()) as {
+        plans: Array<{
+          code: string
+          amountMinor: number | null
+          currency: string | null
+          checkoutReady: boolean
+        }>
+        paidPlansConfigured: boolean
+        checkoutConfigured: boolean
+      }
+      assert.equal(publicNoCodesJson.paidPlansConfigured, true)
+      assert.equal(publicNoCodesJson.checkoutConfigured, false)
+      assert.equal(publicNoCodesJson.plans.length, 3)
+      assert.equal(publicNoCodesJson.plans[1].amountMinor, 350000)
+      assert.equal(publicNoCodesJson.plans[1].checkoutReady, false)
+      assert.equal(publicNoCodesJson.plans[2].amountMinor, 3500000)
+      assert.equal(publicNoCodesJson.plans[2].checkoutReady, false)
+
+      const blockedCheckoutRes = await handlePostCheckout(
+        new Request('https://sportivra.example.com/api/billing/checkout', {
+          method: 'POST',
+          body: JSON.stringify({ planCode: 'premium_monthly' }),
+        }),
+        { ...deps, getAdminClient: () => noCodesDb.admin },
+      )
+      assert.equal(blockedCheckoutRes.status, 409)
+      assert.equal(
+        ((await blockedCheckoutRes.json()) as { code: string }).code,
+        'PLAN_NOT_CONFIGURED',
+      )
+    } finally {
+      if (prevPaystackKey !== undefined) {
+        process.env.PAYSTACK_SECRET_KEY = prevPaystackKey
+      }
+    }
 
     const checkoutRes = await handlePostCheckout(
       new Request('https://sportivra.example.com/api/billing/checkout', {

@@ -4,6 +4,7 @@ import { afterEach, describe, it } from 'node:test'
 import {
   calculatePeriodEnd,
   isPlanCheckoutReady,
+  isPlanPricingPublished,
   isSubscriptionEntitled,
 } from '@/lib/billing/access'
 import {
@@ -281,7 +282,27 @@ describe('Paystack signature & REST adapter', () => {
 })
 
 describe('Entitlement & period helpers', () => {
-  it('validates plan checkout readiness strictly without allowing unpriced or unlinked plans', () => {
+  it('distinguishes published plan pricing from Paystack checkout readiness', () => {
+    assert.equal(
+      isPlanPricingPublished({
+        is_active: true,
+        tier: 'premium',
+        billing_interval: 'month',
+        amount_minor: 350000,
+        currency: 'NGN',
+      }),
+      true,
+    )
+    assert.equal(
+      isPlanPricingPublished({
+        is_active: true,
+        tier: 'premium',
+        billing_interval: 'month',
+        amount_minor: null,
+        currency: 'NGN',
+      }),
+      false,
+    )
     assert.equal(
       isPlanCheckoutReady({
         is_active: true,

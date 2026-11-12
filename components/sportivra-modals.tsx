@@ -44,10 +44,14 @@ import {
   cancelUserSubscriptionRequest,
   createManageSubscriptionLinkRequest,
   describeAccountMembershipSummary,
+  describeAccountPlansState,
+  extractPlanFeatures,
   fetchProtectedMediaAccess,
+  formatBillingIntervalLabel,
   formatMinorCurrency,
   getStreamPlaybackStrategy,
   type MediaAccessClientResult,
+  type PublicPlanSummary,
   type UserBillingOverview,
 } from '@/lib/billing/client'
 import {
@@ -143,8 +147,13 @@ export function AuthAccountModal({
   billingOverview = null,
   billingLoading = false,
   billingError = null,
+  publicPlans = [],
   paidPlansConfigured = false,
+  paidCheckoutConfigured = false,
+  plansLoading = false,
+  plansError = null,
   onRefreshBilling,
+  onRetryPlans,
   onBillingChanged,
   onNavigateToPlans,
   onClose,
@@ -165,8 +174,13 @@ export function AuthAccountModal({
   billingOverview?: UserBillingOverview | null
   billingLoading?: boolean
   billingError?: string | null
+  publicPlans?: PublicPlanSummary[]
   paidPlansConfigured?: boolean
+  paidCheckoutConfigured?: boolean
+  plansLoading?: boolean
+  plansError?: string | null
   onRefreshBilling?: () => Promise<void>
+  onRetryPlans?: () => Promise<void>
   onBillingChanged?: () => Promise<void>
   onNavigateToPlans?: () => void
   onClose: () => void
@@ -582,6 +596,16 @@ export function AuthAccountModal({
       error: billingError,
     })
     const subscriptionDisplay = accountSummary.subscription
+    const plansState = describeAccountPlansState(
+      {
+        plans: publicPlans,
+        paidPlansConfigured,
+        checkoutConfigured: paidCheckoutConfigured,
+      },
+      { loading: plansLoading, error: plansError },
+    )
+    const membershipDisplay = plansState.display
+    const activePlanCode = billingOverview?.subscription?.planCode ?? null
 
     return (
       <ModalShell
@@ -776,20 +800,218 @@ export function AuthAccountModal({
               {!subscriptionDisplay.hasActivePremium &&
                 accountSummary.tierLabel === 'Free' &&
                 onNavigateToPlans &&
-                (paidPlansConfigured ? (
-                  <button
-                    type="button"
-                    onClick={onNavigateToPlans}
-                    className="inline-flex min-h-10 items-center gap-1.5 rounded-full bg-[#39ff14] px-4 text-xs font-bold text-[#0b1220] transition hover:bg-[#5cff3d] dark:hover:bg-[#a8ff9d]"
-                  >
-                    <Sparkles size={13} /> Upgrade to Premium
-                  </button>
-                ) : (
+                (plansState.kind === 'ready' ? (
+                  membershipDisplay.checkoutEnabled ? (
+                    <button
+                      type="button"
+                      onClick={onNavigateToPlans}
+                      className="inline-flex min-h-10 items-center gap-1.5 rounded-full bg-[#39ff14] px-4 text-xs font-bold text-[#0b1220] transition hover:bg-[#5cff3d] dark:hover:bg-[#a8ff9d]"
+                    >
+                      <Sparkles size={13} /> Upgrade to Premium
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={onNavigateToPlans}
+                      className="inline-flex min-h-10 items-center gap-1.5 rounded-full border border-[#0f7a06]/40 bg-white px-4 text-xs font-bold text-[#0f7a06] transition hover:border-[#0f7a06] dark:border-[#39ff14]/40 dark:bg-white/5 dark:text-[#39ff14] dark:hover:border-[#39ff14]"
+                    >
+                      <Sparkles size={13} /> Compare plans &amp; pricing
+                    </button>
+                  )
+                ) : plansState.kind === 'empty' ? (
                   <span className="text-[11px] font-medium text-slate-500 dark:text-white/55">
                     Premium plans coming soon — pricing is currently being
                     finalized.
                   </span>
-                ))}
+                ) : null)}
+            </div>
+
+            <div className="space-y-3 border-t border-slate-200 pt-3.5 dark:border-white/10">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="flex items-center gap-1.5 text-xs font-bold text-[#0b1220] dark:text-white">
+                  <Sparkles
+                    size={13}
+                    className="text-[#0f7a06] dark:text-[#39ff14]"
+                  />
+                  Membership plans &amp; benefits
+                </p>
+                {plansState.kind === 'ready' &&
+                  !membershipDisplay.checkoutEnabled && (
+                    <span className="rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-[10px] font-bold text-amber-800 dark:border-amber-500/35 dark:bg-amber-500/10 dark:text-amber-200">
+                      Checkout disabled until Paystack setup
+                    </span>
+                  )}
+              </div>
+
+              {plansState.kind === 'loading' && (
+                <div className="space-y-2.5">
+                  <p className="flex items-center gap-2 text-xs text-slate-500 dark:text-white/55">
+                    <Loader2 size={13} className="animate-spin" /> Loading
+                    membership plans and pricing...
+                  </p>
+                  <div className="grid gap-2.5 sm:grid-cols-2">
+                    <div className="h-28 animate-pulse rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-[#0e1727]" />
+                    <div className="h-28 animate-pulse rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-[#0e1727]" />
+                  </div>
+                </div>
+              )}
+
+              {plansState.kind === 'error' && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-900 dark:border-amber-500/35 dark:bg-amber-500/10 dark:text-amber-200">
+                  <span>
+                    Could not load membership plans: {plansState.errorMessage}
+                  </span>
+                  {onRetryPlans && (
+                    <button
+                      type="button"
+                      onClick={() => void onRetryPlans()}
+                      className="inline-flex items-center gap-1 font-bold underline"
+                    >
+                      <RefreshCw size={12} /> Retry
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {plansState.kind === 'empty' && (
+                <div className="rounded-xl border border-slate-200 bg-white p-3.5 text-xs text-slate-600 dark:border-white/10 dark:bg-[#0e1727] dark:text-white/65">
+                  <p className="font-semibold text-[#0b1220] dark:text-white">
+                    No paid membership plans published yet
+                  </p>
+                  <p className="mt-1 text-[11px] text-slate-500 dark:text-white/55">
+                    {membershipDisplay.freePlan
+                      ? `${membershipDisplay.freePlan.name}: ${extractPlanFeatures(membershipDisplay.freePlan.features).join(', ') || 'Live scores, reminders, followed teams, and free highlights.'}`
+                      : 'Free access remains active with live scores, match reminders, followed teams, and free highlights.'}
+                  </p>
+                </div>
+              )}
+
+              {plansState.kind === 'ready' && (
+                <>
+                  <div className="grid gap-2.5 sm:grid-cols-2">
+                    {membershipDisplay.premiumPlans.map((plan) => {
+                      const formattedPrice = formatMinorCurrency(
+                        plan.amountMinor,
+                        plan.currency,
+                      )
+                      const intervalLabel = formatBillingIntervalLabel(
+                        plan.billingInterval,
+                      )
+                      const features = extractPlanFeatures(plan.features)
+                      const isYearlySavingsPlan =
+                        plan.billingInterval === 'year' &&
+                        membershipDisplay.annualSavings?.yearlyPlanCode ===
+                          plan.code
+                      const savings = isYearlySavingsPlan
+                        ? membershipDisplay.annualSavings
+                        : null
+                      const isCurrentPlan =
+                        subscriptionDisplay.hasActivePremium &&
+                        activePlanCode === plan.code
+
+                      return (
+                        <div
+                          key={plan.code}
+                          className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-3.5 text-xs dark:border-white/10 dark:bg-[#0e1727]"
+                        >
+                          <div>
+                            <div className="flex flex-wrap items-center justify-between gap-1.5">
+                              <span className="font-bold text-[#0b1220] dark:text-white">
+                                {plan.name}
+                              </span>
+                              {isCurrentPlan ? (
+                                <span className="rounded-full bg-[#39ff14]/25 px-2 py-0.5 text-[10px] font-bold text-[#0f7a06] dark:bg-[#39ff14]/15 dark:text-[#39ff14]">
+                                  Current plan
+                                </span>
+                              ) : (
+                                savings && (
+                                  <span className="rounded-full bg-[#39ff14] px-2 py-0.5 text-[10px] font-black text-[#0b1220]">
+                                    Save{' '}
+                                    {formatMinorCurrency(
+                                      savings.savingsMinor,
+                                      savings.currency,
+                                    )}
+                                    {savings.monthsFree
+                                      ? ` • ${savings.monthsFree} mo free`
+                                      : ''}
+                                  </span>
+                                )
+                              )}
+                            </div>
+
+                            {formattedPrice && (
+                              <p className="mt-1.5 text-base font-black text-[#0b1220] dark:text-white">
+                                {formattedPrice}
+                                {intervalLabel && (
+                                  <span className="ml-1 text-[11px] font-medium text-slate-500 dark:text-white/55">
+                                    {intervalLabel}
+                                  </span>
+                                )}
+                              </p>
+                            )}
+
+                            {savings && (
+                              <p className="mt-0.5 text-[11px] font-semibold text-[#0f7a06] dark:text-[#39ff14]">
+                                Save{' '}
+                                {formatMinorCurrency(
+                                  savings.savingsMinor,
+                                  savings.currency,
+                                )}
+                                /year ({savings.savingsPercent}% off vs{' '}
+                                {formatMinorCurrency(
+                                  savings.annualizedMonthlyMinor,
+                                  savings.currency,
+                                )}
+                                /yr monthly)
+                              </p>
+                            )}
+
+                            {features.length > 0 && (
+                              <ul className="mt-2.5 space-y-1 text-[11px] text-slate-600 dark:text-white/70">
+                                {features.map((feat) => (
+                                  <li
+                                    key={feat}
+                                    className="flex items-start gap-1.5"
+                                  >
+                                    <Check
+                                      size={12}
+                                      className="mt-0.5 shrink-0 text-[#0f7a06] dark:text-[#39ff14]"
+                                    />
+                                    <span>{feat}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+
+                          {!plan.checkoutReady && !isCurrentPlan && (
+                            <button
+                              type="button"
+                              disabled
+                              className="mt-3 inline-flex min-h-8 w-full cursor-not-allowed items-center justify-center rounded-full border border-slate-200 bg-slate-100 px-3 text-[11px] font-semibold text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-white/45"
+                            >
+                              Checkout disabled (setup pending)
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {membershipDisplay.freePlan && (
+                    <p className="text-[11px] text-slate-500 dark:text-white/55">
+                      <span className="font-semibold text-[#0b1220] dark:text-white">
+                        {membershipDisplay.freePlan.name}:
+                      </span>{' '}
+                      Free always included —{' '}
+                      {extractPlanFeatures(
+                        membershipDisplay.freePlan.features,
+                      ).join(', ') ||
+                        'Live scores, reminders, followed teams, and free highlights.'}
+                    </p>
+                  )}
+                </>
+              )}
             </div>
 
             {/* Billing History */}

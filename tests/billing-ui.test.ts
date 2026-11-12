@@ -2,9 +2,11 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   BillingClientError,
+  calculateAnnualPlanSavings,
   cancelUserSubscriptionRequest,
   createManageSubscriptionLinkRequest,
   describeAccountMembershipSummary,
+  describeAccountPlansState,
   describeUserSubscription,
   extractPlanFeatures,
   fetchBillingOverview,
@@ -22,6 +24,7 @@ import {
   type UserBillingOverview,
   type VerifyCheckoutResponse,
 } from '@/lib/billing/client'
+import { resolveActiveNavSectionId } from '@/lib/sportivra/data'
 
 function makePublicPlan(
   overrides: Partial<PublicPlanSummary> = {},
@@ -61,69 +64,232 @@ describe('Pricing & membership display helpers', () => {
     })
 
     assert.equal(freeOnly.paidPlansConfigured, false)
+    assert.equal(freeOnly.checkoutEnabled, false)
+    assert.equal(freeOnly.annualSavings, null)
     assert.equal(freeOnly.comingSoonMessage, 'Premium plans coming soon')
     assert.equal(freeOnly.premiumPlans.length, 0)
     assert.equal(freeOnly.freePlan?.code, 'free')
 
-    // Even if a draft premium plan row lacks checkoutReady, it must not be offered as live checkout
-    const draftOnly = getMembershipDisplayModel({
+    // Unpriced draft rows without amountMinor/currency must stay hidden under "Premium plans coming soon"
+    const unpricedDraftOnly = getMembershipDisplayModel({
       plans: [
         makePublicPlan({
           code: 'draft_monthly',
+          amountMinor: null,
+          currency: null,
           checkoutReady: false,
         }),
       ],
       paidPlansConfigured: true,
     })
-    assert.equal(draftOnly.paidPlansConfigured, false)
-    assert.equal(draftOnly.comingSoonMessage, 'Premium plans coming soon')
-    assert.equal(draftOnly.premiumPlans.length, 0)
+    assert.equal(unpricedDraftOnly.paidPlansConfigured, false)
+    assert.equal(unpricedDraftOnly.checkoutEnabled, false)
+    assert.equal(unpricedDraftOnly.comingSoonMessage, 'Premium plans coming soon')
+    assert.equal(unpricedDraftOnly.premiumPlans.length, 0)
   })
 
-  it('formats configured paid plans, currencies, intervals, and features accurately', () => {
+  it('formats official NGN monthly/yearly pricing, disables checkout without Paystack setup, and computes annual savings accurately', () => {
     const model = getMembershipDisplayModel({
       plans: [
         makePublicPlan({
           id: 'plan-free',
           code: 'free',
-          name: 'Free',
+          name: 'SPORTIVRA Free',
           tier: 'free',
           billingInterval: 'none',
           amountMinor: 0,
           currency: null,
+          features: [
+            'Real-time live scores & final results',
+            'Personalised favourite sports & followed teams',
+            'Saved match kick-off reminders',
+            'Access to all free highlights & news',
+          ],
           checkoutReady: false,
         }),
         makePublicPlan({
           code: 'premium_monthly',
-          name: 'Premium Monthly',
-          amountMinor: 250000,
+          name: 'Monthly Premium',
+          amountMinor: 350000,
           currency: 'NGN',
           billingInterval: 'month',
-          checkoutReady: true,
+          features: [
+            'Licensed live sports broadcasts',
+            'Premium highlights and additional premium content',
+            'Ad-free viewing where supported',
+          ],
+          checkoutReady: false,
         }),
         makePublicPlan({
           id: 'plan-2',
           code: 'premium_yearly',
-          name: 'Premium Yearly',
-          amountMinor: 2500000,
+          name: 'Yearly Premium',
+          amountMinor: 3500000,
           currency: 'NGN',
           billingInterval: 'year',
-          checkoutReady: true,
+          features: [
+            'Licensed live sports broadcasts',
+            'Premium highlights and additional premium content',
+            'Ad-free viewing where supported',
+          ],
+          checkoutReady: false,
         }),
       ],
       paidPlansConfigured: true,
+      checkoutConfigured: false,
     })
 
     assert.equal(model.paidPlansConfigured, true)
+    assert.equal(model.checkoutEnabled, false)
     assert.equal(model.comingSoonMessage, null)
     assert.equal(model.premiumPlans.length, 2)
+    assert.equal(model.freePlan?.name, 'SPORTIVRA Free')
     assert.equal(formatBillingIntervalLabel('month'), 'per month')
     assert.equal(formatBillingIntervalLabel('year'), 'per year')
-    assert.equal(formatMinorCurrency(250000, 'NGN')?.includes('2,500'), true)
+    assert.equal(formatMinorCurrency(350000, 'NGN'), '₦3,500')
+    assert.equal(formatMinorCurrency(3500000, 'NGN'), '₦35,000')
     assert.equal(formatMinorCurrency(null, 'NGN'), null)
+
+    assert.ok(model.annualSavings)
+    assert.equal(model.annualSavings.annualizedMonthlyMinor, 4200000)
+    assert.equal(model.annualSavings.savingsMinor, 700000)
+    assert.equal(formatMinorCurrency(model.annualSavings.savingsMinor, 'NGN'), '₦7,000')
+    assert.equal(model.annualSavings.savingsPercent, 17)
+    assert.equal(model.annualSavings.monthsFree, 2)
+
+    // Enabled when Paystack plan codes + server secret exist
+    const liveCheckoutModel = getMembershipDisplayModel({
+      plans: model.premiumPlans.map((p) => ({ ...p, checkoutReady: true })),
+      paidPlansConfigured: true,
+      checkoutConfigured: true,
+    })
+    assert.equal(liveCheckoutModel.checkoutEnabled, true)
+
+    // Mismatched currency or non-discounted yearly price produces null annualSavings
+    assert.equal(
+      calculateAnnualPlanSavings([
+        makePublicPlan({ billingInterval: 'month', amountMinor: 350000, currency: 'NGN' }),
+        makePublicPlan({ billingInterval: 'year', amountMinor: 500, currency: 'USD' }),
+      ]),
+      null,
+    )
+    assert.equal(
+      calculateAnnualPlanSavings([
+        makePublicPlan({ billingInterval: 'month', amountMinor: 350000, currency: 'NGN' }),
+        makePublicPlan({ billingInterval: 'year', amountMinor: 4500000, currency: 'NGN' }),
+      ]),
+      null,
+    )
+
     assert.deepEqual(
       extractPlanFeatures([' Live streams ', '', 42, 'Match alerts']),
       ['Live streams', 'Match alerts'],
+    )
+  })
+
+  it('distinguishes loading, error, empty, and ready plan states for Account & Billing', () => {
+    const loadingState = describeAccountPlansState(
+      { plans: [], paidPlansConfigured: false, checkoutConfigured: false },
+      { loading: true, error: null },
+    )
+    assert.equal(loadingState.kind, 'loading')
+
+    const errorState = describeAccountPlansState(
+      { plans: [], paidPlansConfigured: false, checkoutConfigured: false },
+      { loading: false, error: 'Network unavailable' },
+    )
+    assert.equal(errorState.kind, 'error')
+    if (errorState.kind === 'error') {
+      assert.equal(errorState.errorMessage, 'Network unavailable')
+    }
+
+    const emptyState = describeAccountPlansState(
+      {
+        plans: [
+          makePublicPlan({
+            code: 'free',
+            tier: 'free',
+            billingInterval: 'none',
+            amountMinor: 0,
+            currency: null,
+            checkoutReady: false,
+          }),
+        ],
+        paidPlansConfigured: false,
+        checkoutConfigured: false,
+      },
+      { loading: false, error: null },
+    )
+    assert.equal(emptyState.kind, 'empty')
+
+    // Once plans are loaded, background refreshes keep displaying ready state
+    const readyDuringRefresh = describeAccountPlansState(
+      {
+        plans: [
+          makePublicPlan({
+            code: 'premium_monthly',
+            amountMinor: 350000,
+            currency: 'NGN',
+            checkoutReady: false,
+          }),
+        ],
+        paidPlansConfigured: true,
+        checkoutConfigured: false,
+      },
+      { loading: true, error: null },
+    )
+    assert.equal(readyDuringRefresh.kind, 'ready')
+  })
+
+  it('highlights Membership navbar link properly on tall screens and bottom scroll', () => {
+    const sections = [
+      { id: 'pricing', offsetTop: 2600 },
+      { id: 'news', offsetTop: 1800 },
+      { id: 'highlights', offsetTop: 1200 },
+      { id: 'live', offsetTop: 500 },
+    ]
+
+    assert.equal(
+      resolveActiveNavSectionId({
+        scrollY: 0,
+        innerHeight: 1400,
+        scrollHeight: 3600,
+        sections,
+      }),
+      'top',
+    )
+
+    assert.equal(
+      resolveActiveNavSectionId({
+        scrollY: 1700,
+        innerHeight: 1400,
+        scrollHeight: 3600,
+        sections,
+      }),
+      'news',
+    )
+
+    // Tall 1400px screen scrolled to max (2200px): scrollY+130 (2330) < pricing offsetTop (2600),
+    // yet near-bottom check still highlights 'pricing' (Membership).
+    assert.equal(
+      resolveActiveNavSectionId({
+        scrollY: 2200,
+        innerHeight: 1400,
+        scrollHeight: 3600,
+        sections,
+      }),
+      'pricing',
+    )
+
+    // Ultra-tall screen where total scroll distance < 260px
+    assert.equal(
+      resolveActiveNavSectionId({
+        scrollY: 150,
+        innerHeight: 1400,
+        scrollHeight: 1550,
+        sections,
+      }),
+      'pricing',
     )
   })
 })
