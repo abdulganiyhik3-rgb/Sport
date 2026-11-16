@@ -76,6 +76,13 @@ import {
   type UserPreferences,
 } from '@/lib/sportivra/personalisation'
 import {
+  FOOTER_COMPANY_LINKS,
+  FOOTER_PRODUCT_LINKS,
+  FOOTER_SUPPORT_LINKS,
+  getFooterAccountLabel,
+  getFooterCopyrightLine,
+} from '@/lib/sportivra/footer'
+import {
   THEME_STORAGE_KEY,
   applyTheme,
   readCurrentTheme,
@@ -3758,201 +3765,154 @@ export function SportivraApp({
         )
       })()}
 
-      <footer className="border-t border-slate-200 bg-[#eef2f6] px-5 pb-10 pt-12 text-slate-600 lg:px-8 dark:border-white/8 dark:bg-[#080e19] dark:text-white/55">
+      <footer
+        aria-label="SPORTIVRA footer"
+        className="border-t border-slate-200 bg-[#eef2f6] px-5 pb-8 pt-12 text-slate-700 sm:pt-14 lg:px-8 dark:border-white/10 dark:bg-[#080e19] dark:text-white/65"
+      >
         <div className="mx-auto max-w-7xl">
-          <div className="grid grid-cols-2 gap-8 sm:grid-cols-3 lg:grid-cols-6">
-            <div className="col-span-2">
+          <div className="grid gap-10 sm:gap-12 lg:grid-cols-5 lg:gap-8">
+            <div className="lg:pr-8">
               <Brand />
-              <p className="mt-3 max-w-xs text-xs leading-relaxed text-slate-600 dark:text-white/50">
+              <p className="mt-4 max-w-sm text-sm leading-6 text-slate-600 dark:text-white/65">
                 The international home for live scores, upcoming fixtures,
                 on-demand highlights, and sports stories that matter.
               </p>
             </div>
 
-            <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-[#0b1220] dark:text-white">
-                Product
-              </h3>
-              <ul className="mt-3 space-y-2.5 text-xs text-slate-600 dark:text-white/55">
-                <li>
-                  <a
-                    href="#live"
-                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
-                  >
-                    Live Matches
-                  </a>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => void handleOpenMatchCenter('finished')}
-                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
-                  >
-                    Scores
-                  </button>
-                </li>
-                <li>
-                  <a
-                    href="#highlights"
-                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
-                  >
-                    Highlights
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="#schedule"
-                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
-                  >
-                    Schedule
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="#my-sports"
-                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
-                  >
-                    Favourite Sports
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="#my-teams"
-                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
-                  >
-                    My Teams
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="#pricing"
-                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
-                  >
-                    Membership
-                  </a>
-                </li>
-              </ul>
-            </div>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-10 sm:gap-x-8 md:grid-cols-4 lg:col-span-4">
+              <nav aria-label="Footer product navigation">
+                <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#0b1220] dark:text-white">
+                  Product
+                </h3>
+                <ul className="mt-3 space-y-1">
+                  {FOOTER_PRODUCT_LINKS.map((link) => (
+                    <li key={link.label}>
+                      {link.kind === 'section' ? (
+                        <a
+                          href={link.href}
+                          className="inline-flex min-h-9 items-center rounded-md px-1.5 text-[13px] font-medium leading-5 text-slate-700 transition hover:text-[#0f7a06] hover:underline hover:underline-offset-4 focus-visible:outline-[#0f7a06] dark:text-white/65 dark:hover:text-[#39ff14] dark:focus-visible:outline-[#39ff14]"
+                        >
+                          {link.label}
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void handleOpenMatchCenter('finished')}
+                          className="inline-flex min-h-9 items-center rounded-md px-1.5 text-[13px] font-medium leading-5 text-slate-700 transition hover:text-[#0f7a06] hover:underline hover:underline-offset-4 focus-visible:outline-[#0f7a06] dark:text-white/65 dark:hover:text-[#39ff14] dark:focus-visible:outline-[#39ff14]"
+                        >
+                          {link.label}
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </nav>
 
-            <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-[#0b1220] dark:text-white">
-                Sports
-              </h3>
-              <ul className="mt-3 space-y-2.5 text-xs text-slate-600 dark:text-white/55">
-                {catalogLoading ? (
-                  Array.from({ length: 4 }).map((_, idx) => (
-                    <li
-                      key={idx}
-                      className="h-3.5 w-20 animate-pulse rounded bg-slate-300 dark:bg-white/10"
-                    />
-                  ))
-                ) : sports.length === 0 ? (
-                  <li className="text-slate-400 dark:text-white/40">
-                    No sports available
+              <nav aria-label="Footer sports navigation" aria-busy={catalogLoading}>
+                <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#0b1220] dark:text-white">
+                  Sports
+                </h3>
+                <ul className="mt-3 space-y-1">
+                  {catalogLoading ? (
+                    Array.from({ length: 4 }).map((_, idx) => (
+                      <li key={idx} aria-hidden="true">
+                        <span className="my-2 block h-3.5 w-20 animate-pulse rounded bg-slate-300 dark:bg-white/10" />
+                      </li>
+                    ))
+                  ) : sports.length === 0 ? (
+                    <li>
+                      <a
+                        href="#sports"
+                        className="inline-flex min-h-9 items-center rounded-md px-1.5 text-[13px] font-medium leading-5 text-slate-700 transition hover:text-[#0f7a06] hover:underline hover:underline-offset-4 focus-visible:outline-[#0f7a06] dark:text-white/65 dark:hover:text-[#39ff14] dark:focus-visible:outline-[#39ff14]"
+                      >
+                        Browse all sports
+                      </a>
+                    </li>
+                  ) : (
+                    sports.map((sport) => (
+                      <li key={sport.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedSportSlug(sport.slug)
+                            document
+                              .getElementById('live')
+                              ?.scrollIntoView({ behavior: 'smooth' })
+                          }}
+                          className="inline-flex min-h-9 items-center rounded-md px-1.5 text-[13px] font-medium leading-5 text-slate-700 transition hover:text-[#0f7a06] hover:underline hover:underline-offset-4 focus-visible:outline-[#0f7a06] dark:text-white/65 dark:hover:text-[#39ff14] dark:focus-visible:outline-[#39ff14]"
+                        >
+                          {sport.name}
+                        </button>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              </nav>
+
+              <nav aria-label="Footer company navigation">
+                <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#0b1220] dark:text-white">
+                  Company
+                </h3>
+                <ul className="mt-3 space-y-1">
+                  {FOOTER_COMPANY_LINKS.map((link) => (
+                    <li key={link.label}>
+                      {link.kind === 'section' ? (
+                        <a
+                          href={link.href}
+                          className="inline-flex min-h-9 items-center rounded-md px-1.5 text-[13px] font-medium leading-5 text-slate-700 transition hover:text-[#0f7a06] hover:underline hover:underline-offset-4 focus-visible:outline-[#0f7a06] dark:text-white/65 dark:hover:text-[#39ff14] dark:focus-visible:outline-[#39ff14]"
+                        >
+                          {link.label}
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setInfoTopic(link.topic)}
+                          className="inline-flex min-h-9 items-center rounded-md px-1.5 text-[13px] font-medium leading-5 text-slate-700 transition hover:text-[#0f7a06] hover:underline hover:underline-offset-4 focus-visible:outline-[#0f7a06] dark:text-white/65 dark:hover:text-[#39ff14] dark:focus-visible:outline-[#39ff14]"
+                        >
+                          {link.label}
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </nav>
+
+              <nav aria-label="Footer support navigation">
+                <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#0b1220] dark:text-white">
+                  Support
+                </h3>
+                <ul className="mt-3 space-y-1">
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => setAuthModalMode(user ? 'account' : 'signin')}
+                      className="inline-flex min-h-9 items-center rounded-md px-1.5 text-[13px] font-medium leading-5 text-slate-700 transition hover:text-[#0f7a06] hover:underline hover:underline-offset-4 focus-visible:outline-[#0f7a06] dark:text-white/65 dark:hover:text-[#39ff14] dark:focus-visible:outline-[#39ff14]"
+                    >
+                      {getFooterAccountLabel(Boolean(user))}
+                    </button>
                   </li>
-                ) : (
-                  sports.map((sport) => (
-                    <li key={sport.id}>
+                  {FOOTER_SUPPORT_LINKS.map((link) => (
+                    <li key={link.label}>
                       <button
                         type="button"
-                        onClick={() => {
-                          setSelectedSportSlug(sport.slug)
-                          document
-                            .getElementById('live')
-                            ?.scrollIntoView({ behavior: 'smooth' })
-                        }}
-                        className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
+                        onClick={() => setInfoTopic(link.topic)}
+                        className="inline-flex min-h-9 items-center rounded-md px-1.5 text-[13px] font-medium leading-5 text-slate-700 transition hover:text-[#0f7a06] hover:underline hover:underline-offset-4 focus-visible:outline-[#0f7a06] dark:text-white/65 dark:hover:text-[#39ff14] dark:focus-visible:outline-[#39ff14]"
                       >
-                        {sport.name}
+                        {link.label}
                       </button>
                     </li>
-                  ))
-                )}
-              </ul>
-            </div>
-
-            <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-[#0b1220] dark:text-white">
-                Company
-              </h3>
-              <ul className="mt-3 space-y-2.5 text-xs text-slate-600 dark:text-white/55">
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => setInfoTopic('About us')}
-                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
-                  >
-                    About us
-                  </button>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => setInfoTopic('Careers')}
-                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
-                  >
-                    Careers
-                  </button>
-                </li>
-                <li>
-                  <a
-                    href="#news"
-                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
-                  >
-                    Newsroom
-                  </a>
-                </li>
-              </ul>
-            </div>
-
-            <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-[#0b1220] dark:text-white">
-                Support
-              </h3>
-              <ul className="mt-3 space-y-2.5 text-xs text-slate-600 dark:text-white/55">
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => setAuthModalMode(user ? 'account' : 'signin')}
-                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
-                  >
-                    {user ? 'My Account' : 'Sign in'}
-                  </button>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => setInfoTopic('Help centre')}
-                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
-                  >
-                    Help centre
-                  </button>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => setInfoTopic('Privacy')}
-                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
-                  >
-                    Privacy policy
-                  </button>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => setInfoTopic('Terms')}
-                    className="transition hover:text-[#0f7a06] dark:hover:text-[#39ff14]"
-                  >
-                    Terms of use
-                  </button>
-                </li>
-              </ul>
+                  ))}
+                </ul>
+              </nav>
             </div>
           </div>
 
-          <div className="mt-10 flex flex-col gap-4 border-t border-slate-200 pt-6 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between dark:border-white/8 dark:text-white/35">
-            <p>© 2026 SPORTIVRA. All rights reserved.</p>
-            <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-600 dark:text-white/45">
+          <div className="mt-10 flex flex-col gap-5 border-t border-slate-200 pt-6 text-[13px] text-slate-600 sm:flex-row sm:items-center sm:justify-between dark:border-white/10 dark:text-white/60">
+            <p>{getFooterCopyrightLine()}</p>
+            <div
+              aria-label="SPORTIVRA experiences"
+              className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-medium text-slate-600 dark:text-white/60"
+            >
               <span className="inline-flex items-center gap-1.5">
                 <Globe size={13} className="text-[#0f7a06] dark:text-[#39ff14]" />{' '}
                 Web

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import Hls from 'hls.js'
 import {
   AlertCircle,
@@ -69,6 +69,24 @@ function formatAuthError(message: string): string {
   return message
 }
 
+const FOCUSABLE_ELEMENT_SELECTOR = [
+  'a[href]',
+  'area[href]',
+  'button:not([disabled])',
+  'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  'iframe',
+  '[contenteditable="true"]',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',')
+
+function getFocusableElements(container: HTMLElement): HTMLElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(FOCUSABLE_ELEMENT_SELECTOR),
+  ).filter((element) => element.getAttribute('aria-hidden') !== 'true')
+}
+
 function ModalShell({
   onClose,
   title,
@@ -84,29 +102,89 @@ function ModalShell({
   zIndexClass?: string
   children: React.ReactNode
 }) {
+  const dialogRef = useRef<HTMLDivElement | null>(null)
+  const previousActiveElementRef = useRef<HTMLElement | null>(null)
+  const onCloseRef = useRef(onClose)
+  const titleId = useId()
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
+    previousActiveElementRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null
     document.body.style.overflow = 'hidden'
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKeyDown)
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      const dialog = dialogRef.current
+      const firstFocusable = dialog ? getFocusableElements(dialog)[0] : null
+      firstFocusable?.focus()
+      if (!firstFocusable) dialog?.focus()
+    })
+
     return () => {
+      window.cancelAnimationFrame(focusFrame)
       document.body.style.overflow = previousOverflow
-      window.removeEventListener('keydown', onKeyDown)
+      const previousActiveElement = previousActiveElementRef.current
+      if (previousActiveElement?.isConnected) {
+        window.requestAnimationFrame(() => previousActiveElement.focus())
+      }
     }
-  }, [onClose])
+  }, [])
+
+  const handleDialogKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      onCloseRef.current()
+      return
+    }
+
+    if (event.key !== 'Tab') return
+
+    const focusableElements = getFocusableElements(event.currentTarget)
+    if (focusableElements.length === 0) {
+      event.preventDefault()
+      event.currentTarget.focus()
+      return
+    }
+
+    const firstFocusable = focusableElements[0]
+    const lastFocusable = focusableElements[focusableElements.length - 1]
+
+    if (
+      event.shiftKey &&
+      (document.activeElement === firstFocusable ||
+        document.activeElement === event.currentTarget)
+    ) {
+      event.preventDefault()
+      lastFocusable.focus()
+    } else if (
+      !event.shiftKey &&
+      (document.activeElement === lastFocusable ||
+        document.activeElement === event.currentTarget)
+    ) {
+      event.preventDefault()
+      firstFocusable.focus()
+    }
+  }
 
   return (
     <div
       className={`fixed inset-0 ${zIndexClass} flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm dark:bg-black/75`}
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
         className={`relative max-h-[90vh] w-full ${maxWidth} overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 text-[#0b1220] shadow-2xl dark:border-white/15 dark:bg-[#0e1727] dark:text-white`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        onKeyDown={handleDialogKeyDown}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-5 flex items-start justify-between gap-4 border-b border-slate-200 pb-4 dark:border-white/10">
@@ -116,14 +194,17 @@ function ModalShell({
                 {eyebrow}
               </p>
             )}
-            <h2 className="text-xl font-bold tracking-tight text-[#0b1220] sm:text-2xl dark:text-white">
+            <h2
+              id={titleId}
+              className="text-xl font-bold tracking-tight text-[#0b1220] sm:text-2xl dark:text-white"
+            >
               {title}
             </h2>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-slate-200 hover:text-[#0b1220] dark:bg-white/8 dark:text-white/75 dark:hover:bg-white/15 dark:hover:text-white"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-slate-200 hover:text-[#0b1220] focus-visible:outline-[#0f7a06] dark:bg-white/8 dark:text-white/75 dark:hover:bg-white/15 dark:hover:text-white dark:focus-visible:outline-[#39ff14]"
             aria-label="Close modal"
           >
             <X size={18} />
@@ -2285,8 +2366,8 @@ export function InfoPageModal({
       body: 'We collaborate with engineers, sports editors, and data specialists focused on fast real-time match experiences and clean cross-device design.',
     },
     'Help centre': {
-      subtitle: 'Account, reminders & email verification.',
-      body: 'Sign up with your email and password, confirm your verification link, and use Remind me on any upcoming match to save fixtures directly to your SPORTIVRA account.',
+      subtitle: 'Account, reminders, membership & email verification.',
+      body: 'Create or sign in to your SPORTIVRA account with your email and password. If verification is required, use the confirmation link sent to your inbox. Use Remind me on an upcoming match to save a fixture, and manage your favourite sports and followed teams from your account. Membership and billing details are shown in Account & Billing when available.',
     },
     Privacy: {
       subtitle: 'Row-level security & data protection.',
