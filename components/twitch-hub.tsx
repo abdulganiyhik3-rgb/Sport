@@ -22,6 +22,11 @@ import {
   Video,
   X,
 } from 'lucide-react'
+import {
+  getTwitchEmbedOptions,
+  getTwitchPlayerErrorMessage,
+  isValidTwitchEmbedMedia,
+} from '@/lib/twitch/player'
 import type {
   TwitchCategory,
   TwitchClip,
@@ -90,6 +95,25 @@ type TwitchQuality = {
 }
 
 let twitchEmbedScriptPromise: Promise<void> | null = null
+const TWITCH_EMBED_LOAD_TIMEOUT_MS = 15_000
+
+function waitForTwitchEmbedGlobal(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now()
+    const check = () => {
+      if (window.Twitch?.Embed) {
+        resolve()
+        return
+      }
+      if (Date.now() - startedAt >= TWITCH_EMBED_LOAD_TIMEOUT_MS) {
+        reject(new Error('The official Twitch player could not be loaded.'))
+        return
+      }
+      window.setTimeout(check, 50)
+    }
+    check()
+  })
+}
 
 function loadTwitchEmbedScript(): Promise<void> {
   if (typeof window === 'undefined') {
@@ -98,32 +122,33 @@ function loadTwitchEmbedScript(): Promise<void> {
   if (window.Twitch?.Embed) return Promise.resolve()
   if (twitchEmbedScriptPromise) return twitchEmbedScriptPromise
 
-  twitchEmbedScriptPromise = new Promise<void>((resolve, reject) => {
+  const promise = (async () => {
     const existing = document.querySelector<HTMLScriptElement>(
       'script[data-twitch-embed-sdk="true"]',
     )
-    if (existing) {
-      existing.addEventListener('load', () => resolve(), { once: true })
-      existing.addEventListener(
-        'error',
-        () => reject(new Error('The official Twitch player could not be loaded.')),
-        { once: true },
-      )
-      return
+
+    if (!existing) {
+      await new Promise<void>((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = 'https://player.twitch.tv/js/embed/v1.js'
+        script.async = true
+        script.dataset.twitchEmbedSdk = 'true'
+        script.onload = () => resolve()
+        script.onerror = () =>
+          reject(new Error('The official Twitch player could not be loaded.'))
+        document.head.appendChild(script)
+      })
     }
 
-    const script = document.createElement('script')
-    script.src = 'https://player.twitch.tv/js/embed/v1.js'
-    script.async = true
-    script.dataset.twitchEmbedSdk = 'true'
-    script.onload = () => resolve()
-    script.onerror = () => {
-      twitchEmbedScriptPromise = null
-      reject(new Error('The official Twitch player could not be loaded.'))
-    }
-    document.head.appendChild(script)
+    // Polling also handles an SDK script that was loaded before this component
+    // mounted, where a late-added load listener would never fire.
+    await waitForTwitchEmbedGlobal()
+  })()
+
+  twitchEmbedScriptPromise = promise.catch((error: unknown) => {
+    twitchEmbedScriptPromise = null
+    throw error
   })
-
   return twitchEmbedScriptPromise
 }
 
@@ -226,48 +251,54 @@ function TwitchPlayer({
 
     async function initializePlayer() {
       try {
+        const media = { kind: item.kind, id: item.id }
+        if (!isValidTwitchEmbedMedia(media)) {
+          throw new Error('Twitch returned an invalid channel, VOD, or clip identifier.')
+        }
+
         await loadTwitchEmbedScript()
-        if (cancelled || !containerRef.current || !window.Twitch?.Embed) return
+        if (cancelled) return
+        if (!containerRef.current || !window.Twitch?.Embed) {
+          throw new Error('The official Twitch player could not be loaded.')
+        }
 
         containerRef.current.replaceChildren()
         const containerId = 'sportivra-twitch-embed'
         containerRef.current.id = containerId
-        const parent = window.location.hostname
-        const options: Record<string, unknown> = {
-          width: '100%',
-          height: '100%',
-          layout: chatEnabled ? 'video-with-chat' : 'video',
-          autoplay: false,
-          muted: false,
-          allowfullscreen: true,
-          parent: [parent],
-        }
-        if (item.kind === 'channel') options.channel = item.id
-        if (item.kind === 'video') options.video = item.id
-        if (item.kind === 'clip') options.clip = item.id
+        const options = getTwitchEmbedOptions(
+          media,
+          window.location.hostname,
+          chatEnabled,
+        )
 
         const embed = new window.Twitch.Embed(containerId, options)
         const onReady = () => {
           if (cancelled) return
-          const player = embed.getPlayer()
-          playerRef.current = player
-          setReady(true)
-          const qualityResult = player.getQualities?.()
-          Promise.resolve(qualityResult)
-            .then((nextQualities) => {
-              if (cancelled) return
-              const normalized = normalizeQualities(nextQualities)
-              setQualities(normalized)
-              setQuality(player.getQuality?.() || normalized[0]?.id || '')
-            })
-            .catch(() => {
-              if (!cancelled) setQualities([])
-            })
+          try {
+            const player = embed.getPlayer()
+            playerRef.current = player
+            setReady(true)
+            const qualityResult = player.getQualities?.()
+            Promise.resolve(qualityResult)
+              .then((nextQualities) => {
+                if (cancelled) return
+                const normalized = normalizeQualities(nextQualities)
+                setQualities(normalized)
+                setQuality(player.getQuality?.() || normalized[0]?.id || '')
+              })
+              .catch(() => {
+                if (!cancelled) setQualities([])
+              })
+          } catch {
+            if (!cancelled) {
+              setPlayerError(getTwitchPlayerErrorMessage(item.kind))
+            }
+          }
         }
         embed.addEventListener('VIDEO_READY', onReady)
         embed.addEventListener('VIDEO_ERROR', () => {
           if (!cancelled) {
-            setPlayerError('Twitch could not load this broadcast in the embedded player.')
+            setPlayerError(getTwitchPlayerErrorMessage(item.kind))
           }
         })
       } catch (error) {
@@ -275,7 +306,7 @@ function TwitchPlayer({
           setPlayerError(
             error instanceof Error
               ? error.message
-              : 'The official Twitch player could not be loaded.',
+              : getTwitchPlayerErrorMessage(item.kind),
           )
         }
       }
