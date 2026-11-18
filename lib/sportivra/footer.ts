@@ -23,6 +23,7 @@ export const FOOTER_PRODUCT_LINKS = [
   },
   { label: 'My Teams', kind: 'section', href: '#my-teams', targetId: 'my-teams' },
   { label: 'Membership', kind: 'section', href: '#pricing', targetId: 'pricing' },
+  { label: 'Twitch Sports', kind: 'section', href: '#twitch', targetId: 'twitch' },
 ] as const
 
 export const FOOTER_COMPANY_LINKS = [
@@ -44,6 +45,7 @@ export const FOOTER_SECTION_TARGET_IDS = [
   'my-sports',
   'my-teams',
   'pricing',
+  'twitch',
   'news',
 ] as const
 
