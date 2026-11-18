@@ -60,7 +60,8 @@ export function getTwitchEmbedOptions(
   return {
     width: '100%',
     height: '100%',
-    layout: chatEnabled ? 'video-with-chat' : 'video',
+    layout:
+      chatEnabled && media.kind === 'channel' ? 'video-with-chat' : 'video',
     autoplay: false,
     muted: false,
     allowfullscreen: true,

@@ -108,7 +108,7 @@ describe('Twitch route boundaries', () => {
       assert.deepEqual(await unconfigured.json(), {
         configured: false,
         oauthConfigured: false,
-        embedScriptUrl: 'https://player.twitch.tv/js/embed/v1.js',
+        embedScriptUrl: 'https://embed.twitch.tv/embed/v1.js',
       })
     })
 

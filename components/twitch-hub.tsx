@@ -54,12 +54,9 @@ interface TwitchEmbedInstance {
 interface TwitchEmbedConstructor {
   new (elementId: string, options: Record<string, unknown>): TwitchEmbedInstance
   VIDEO_READY: string
-  VIDEO_ERROR?: string
-  ONLINE?: string
-  OFFLINE?: string
 }
 
-interface TwitchPlayerEventConstants {
+interface TwitchPlayerConstructor {
   ERROR?: string
   ONLINE?: string
   OFFLINE?: string
@@ -69,7 +66,7 @@ declare global {
   interface Window {
     Twitch?: {
       Embed: TwitchEmbedConstructor
-      Player?: TwitchPlayerEventConstants
+      Player?: TwitchPlayerConstructor
     }
   }
 }
@@ -120,7 +117,7 @@ function waitForTwitchEmbedGlobal(): Promise<void> {
         return
       }
       if (Date.now() - startedAt >= TWITCH_EMBED_LOAD_TIMEOUT_MS) {
-        reject(new Error('The official Twitch player could not be loaded.'))
+        reject(new Error('The official Twitch Embed SDK could not be loaded.'))
         return
       }
       window.setTimeout(check, 50)
@@ -131,7 +128,7 @@ function waitForTwitchEmbedGlobal(): Promise<void> {
 
 function loadTwitchEmbedScript(): Promise<void> {
   if (typeof window === 'undefined') {
-    return Promise.reject(new Error('Twitch player is only available in a browser.'))
+    return Promise.reject(new Error('Twitch playback is only available in a browser.'))
   }
   if (window.Twitch?.Embed) return Promise.resolve()
   if (twitchEmbedScriptPromise) return twitchEmbedScriptPromise
@@ -147,12 +144,12 @@ function loadTwitchEmbedScript(): Promise<void> {
     try {
       if (createdScript) {
         await new Promise<void>((resolve, reject) => {
-          createdScript.src = 'https://player.twitch.tv/js/embed/v1.js'
+          createdScript.src = 'https://embed.twitch.tv/embed/v1.js'
           createdScript.async = true
           createdScript.dataset.twitchEmbedSdk = 'true'
           createdScript.onload = () => resolve()
           createdScript.onerror = () =>
-            reject(new Error('The official Twitch player could not be loaded.'))
+            reject(new Error('The official Twitch Embed SDK could not be loaded.'))
           document.head.appendChild(createdScript)
         })
       }
@@ -339,7 +336,7 @@ function TwitchPlayer({
         await loadTwitchEmbedScript()
         if (cancelled) return
         if (!containerRef.current || !window.Twitch?.Embed) {
-          throw new Error('The official Twitch player could not be loaded.')
+          throw new Error('The official Twitch Embed SDK could not be loaded.')
         }
 
         containerRef.current.replaceChildren()
@@ -378,34 +375,37 @@ function TwitchPlayer({
           }
         }
 
-        embed.addEventListener(embedConstructor.VIDEO_READY, onReady)
-        const errorEvent = embedConstructor.VIDEO_ERROR ?? playerEventConstants?.ERROR
-        if (errorEvent) {
-          embed.addEventListener(errorEvent, () => {
+        const registerPlayerEvents = () => {
+          const player = playerRef.current
+          if (!player) return
+
+          const errorEvent = playerEventConstants?.ERROR ?? 'error'
+          player.addEventListener(errorEvent, () => {
             if (!cancelled) {
               clearReadyTimeout()
               setPlayerError(getTwitchPlayerErrorMessage(item.kind, 'player-error'))
             }
           })
+
+          if (item.kind !== 'channel') return
+          const offlineEvent = playerEventConstants?.OFFLINE ?? 'offline'
+          player.addEventListener(offlineEvent, () => {
+            if (!cancelled) {
+              clearReadyTimeout()
+              setPlayerError(getTwitchPlayerErrorMessage('channel', 'offline'))
+            }
+          })
+          const onlineEvent = playerEventConstants?.ONLINE ?? 'online'
+          player.addEventListener(onlineEvent, () => {
+            if (!cancelled) setPlayerError(null)
+          })
         }
-        if (item.kind === 'channel') {
-          const offlineEvent =
-            embedConstructor.OFFLINE ?? playerEventConstants?.OFFLINE
-          if (offlineEvent) {
-            embed.addEventListener(offlineEvent, () => {
-              if (!cancelled) {
-                clearReadyTimeout()
-                setPlayerError(getTwitchPlayerErrorMessage('channel', 'offline'))
-              }
-            })
-          }
-          const onlineEvent = embedConstructor.ONLINE ?? playerEventConstants?.ONLINE
-          if (onlineEvent) {
-            embed.addEventListener(onlineEvent, () => {
-              if (!cancelled) setPlayerError(null)
-            })
-          }
+
+        const onReadyWithPlayerEvents = () => {
+          onReady()
+          registerPlayerEvents()
         }
+        embed.addEventListener(embedConstructor.VIDEO_READY, onReadyWithPlayerEvents)
         armReadyTimeout(item.kind)
       } catch (error) {
         if (!cancelled) {
@@ -535,7 +535,7 @@ function TwitchPlayer({
             </select>
           </label>
         )}
-        {item.kind !== 'clip' && (
+        {item.kind === 'channel' && (
           <button
             type="button"
             onClick={() => setChatEnabled((enabled) => !enabled)}

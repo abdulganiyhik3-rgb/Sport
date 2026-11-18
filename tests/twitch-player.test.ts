@@ -26,13 +26,25 @@ describe('Twitch Embed playback contract', () => {
     })
   })
 
-  it('maps VOD playback to the official Embed SDK video identifier', () => {
+  it('maps VOD playback to the official Embed SDK video identifier without chat replay', () => {
+    const options = getTwitchEmbedOptions(
+      { kind: 'video', id: '123456789' },
+      'sport-topaz-eta.vercel.app',
+      true,
+    )
+
+    assert.equal(options.video, '123456789')
+    assert.equal(options.layout, 'video')
+  })
+
+  it('enables the official live-channel chat layout only for channels', () => {
     assert.equal(
       getTwitchEmbedOptions(
-        { kind: 'video', id: '123456789' },
+        { kind: 'channel', id: 'sports_channel' },
         'sport-topaz-eta.vercel.app',
-      )['video'],
-      '123456789',
+        true,
+      ).layout,
+      'video-with-chat',
     )
   })
 
