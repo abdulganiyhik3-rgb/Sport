@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
+  getTwitchClipEmbedUrl,
   getTwitchEmbedOptions,
   getTwitchPlayerErrorMessage,
   isValidTwitchEmbedMedia,
@@ -25,7 +26,7 @@ describe('Twitch Embed playback contract', () => {
     })
   })
 
-  it('maps VOD and clip playback to their official Embed SDK identifiers', () => {
+  it('maps VOD playback to the official Embed SDK video identifier', () => {
     assert.equal(
       getTwitchEmbedOptions(
         { kind: 'video', id: '123456789' },
@@ -33,25 +34,19 @@ describe('Twitch Embed playback contract', () => {
       )['video'],
       '123456789',
     )
+  })
+
+  it('uses the official non-interactive Twitch Clips embed URL', () => {
     assert.equal(
-      getTwitchEmbedOptions(
-        { kind: 'clip', id: 'EncouragingClipSlug' },
+      getTwitchClipEmbedUrl(
+        'EncouragingClipSlug',
         'sport-topaz-eta.vercel.app',
-        true,
-      )['clip'],
-      'EncouragingClipSlug',
-    )
-    assert.equal(
-      getTwitchEmbedOptions(
-        { kind: 'clip', id: 'EncouragingClipSlug' },
-        'sport-topaz-eta.vercel.app',
-        true,
-      )['layout'],
-      'video-with-chat',
+      ),
+      'https://clips.twitch.tv/embed?clip=EncouragingClipSlug&parent=sport-topaz-eta.vercel.app',
     )
   })
 
-  it('rejects malformed identifiers and unsafe parent values', () => {
+  it('rejects malformed identifiers, unsafe parents, and clip SDK options', () => {
     assert.equal(isValidTwitchEmbedMedia({ kind: 'channel', id: '' }), false)
     assert.equal(isValidTwitchEmbedMedia({ kind: 'video', id: 'not-a-number' }), false)
     assert.equal(isValidTwitchEmbedMedia({ kind: 'clip', id: 'clip/123' }), false)
@@ -61,11 +56,18 @@ describe('Twitch Embed playback contract', () => {
         'https://sport-topaz-eta.vercel.app',
       ),
     )
+    assert.throws(() =>
+      getTwitchEmbedOptions(
+        { kind: 'clip', id: 'EncouragingClipSlug' },
+        'sport-topaz-eta.vercel.app',
+      ),
+    )
   })
 
-  it('uses content-specific errors instead of calling every failure a broadcast error', () => {
-    assert.match(getTwitchPlayerErrorMessage('channel'), /channel/)
+  it('distinguishes offline channels and content-specific player failures', () => {
+    assert.match(getTwitchPlayerErrorMessage('channel', 'offline'), /offline/)
     assert.match(getTwitchPlayerErrorMessage('video'), /VOD/)
-    assert.match(getTwitchPlayerErrorMessage('clip'), /clip/)
+    assert.match(getTwitchPlayerErrorMessage('clip', 'clip-error'), /clip/)
+    assert.match(getTwitchPlayerErrorMessage('channel', 'timeout'), /timed out/)
   })
 })

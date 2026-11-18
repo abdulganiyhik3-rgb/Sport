@@ -38,6 +38,18 @@ describe('SPORTIVRA header navigation contract', () => {
     assert.equal(new Set(MORE_NAV_ITEMS.map((item) => item.id)).size, MORE_NAV_ITEMS.length)
   })
 
+  it('keeps static More links tied to real sections and action items explicit', () => {
+    const realSectionIds = new Set(['my-teams', 'schedule', 'news', 'twitch'])
+    const actionIds = new Set(['scores', 'reminders', 'help'])
+
+    for (const item of MORE_NAV_ITEMS) {
+      if (item.action) assert.equal(actionIds.has(item.id), true)
+      else assert.equal(realSectionIds.has(item.href.slice(1)), true)
+    }
+    assert.equal(realSectionIds.has(MEMBERSHIP_NAV_ITEM.href.slice(1)), false)
+    assert.equal(MEMBERSHIP_NAV_ITEM.action, 'membership')
+  })
+
   it('identifies active secondary destinations for the More trigger', () => {
     assert.equal(isMoreNavItemActive('twitch'), true)
     assert.equal(isMoreNavItemActive('schedule'), true)

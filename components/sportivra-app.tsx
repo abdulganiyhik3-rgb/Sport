@@ -1501,7 +1501,10 @@ export function SportivraApp({
     [],
   )
 
-  const handleNavSelection = (item: SportivraNavItem) => {
+  const handleNavSelection = (
+    item: SportivraNavItem,
+    options: { restoreDesktopFocus?: boolean } = {},
+  ) => {
     if (item.action === 'match-center') {
       void handleOpenMatchCenter('finished')
     } else if (item.action === 'membership') {
@@ -1521,14 +1524,18 @@ export function SportivraApp({
     setMobileNav(false)
     setMoreOpen(false)
     setMoreMobileOpen(false)
+    if (options.restoreDesktopFocus) {
+      window.requestAnimationFrame(() => moreTriggerRef.current?.focus())
+    }
   }
 
   const handleNavClick = (
     e: React.MouseEvent<HTMLAnchorElement>,
     item: SportivraNavItem,
+    options?: { restoreDesktopFocus?: boolean },
   ) => {
     if (item.action) e.preventDefault()
-    handleNavSelection(item)
+    handleNavSelection(item, options)
   }
 
   const handleMoreMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -1679,7 +1686,9 @@ export function SportivraApp({
                           type="button"
                           role="menuitem"
                           tabIndex={-1}
-                          onClick={() => handleNavSelection(item)}
+                          onClick={() =>
+                            handleNavSelection(item, { restoreDesktopFocus: true })
+                          }
                           className={itemClassName}
                           aria-current={isActive ? 'location' : undefined}
                         >
@@ -1700,7 +1709,9 @@ export function SportivraApp({
                         href={item.href}
                         role="menuitem"
                         tabIndex={-1}
-                        onClick={(e) => handleNavClick(e, item)}
+                        onClick={(e) =>
+                          handleNavClick(e, item, { restoreDesktopFocus: true })
+                        }
                         className={itemClassName}
                         aria-current={isActive ? 'location' : undefined}
                       >
@@ -2126,6 +2137,8 @@ export function SportivraApp({
             {moreMobileOpen && (
               <div
                 id="sportivra-mobile-more-menu"
+                role="group"
+                aria-label="More SPORTIVRA navigation"
                 className="border-b border-slate-200 py-1 dark:border-white/8"
               >
                 {MORE_NAV_ITEMS.map((item) => {
