@@ -96,6 +96,7 @@ import {
   MatchCenterModal,
   MediaViewerModal,
 } from '@/components/sportivra-modals'
+import { TwitchHub } from '@/components/twitch-hub'
 
 const navItems = [
   { label: 'Home', href: '#top', id: 'top' },
@@ -106,6 +107,7 @@ const navItems = [
   { label: 'Scores', href: '#scores', id: 'scores' },
   { label: 'Highlights', href: '#highlights', id: 'highlights' },
   { label: 'News', href: '#news', id: 'news' },
+  { label: 'Twitch Sports', href: '#twitch', id: 'twitch' },
   { label: 'Membership', href: '#pricing', id: 'pricing' },
 ] as const
 
@@ -877,6 +879,7 @@ export function SportivraApp({
   useEffect(() => {
     const trackedIds = [
       'pricing',
+      'twitch',
       'news',
       'highlights',
       'schedule',
@@ -3372,7 +3375,15 @@ export function SportivraApp({
         )}
       </section>
 
-      {/* SECTION 7: SPORTIVRA Membership & Plans + Multi-Column Footer */}
+      {/* SECTION 7: Official Twitch Sports Discovery */}
+      <section
+        id="twitch"
+        className="mx-auto max-w-7xl scroll-mt-20 px-5 pb-16 pt-4 lg:px-8"
+      >
+        <TwitchHub />
+      </section>
+
+      {/* SECTION 8: SPORTIVRA Membership & Plans + Multi-Column Footer */}
       {(() => {
         const membershipDisplay = getMembershipDisplayModel({
           plans: publicPlans,
