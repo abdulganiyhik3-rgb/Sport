@@ -9,7 +9,7 @@ export async function GET(request: Request) {
     {
       configured: isTwitchConfigured(),
       oauthConfigured: isTwitchOAuthConfigured(request.url),
-      embedScriptUrl: 'https://player.twitch.tv/js/embed/v1.js',
+      embedScriptUrl: 'https://embed.twitch.tv/embed/v1.js',
     },
     { headers: { 'cache-control': 'no-store' } },
   )

@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Bell,
   Check,
+  ChevronDown,
   ChevronRight,
   Clock3,
   CreditCard,
@@ -83,6 +84,13 @@ import {
   getFooterCopyrightLine,
 } from '@/lib/sportivra/footer'
 import {
+  MEMBERSHIP_NAV_ITEM,
+  MORE_NAV_ITEMS,
+  PRIMARY_NAV_ITEMS,
+  isMoreNavItemActive,
+  type SportivraNavItem,
+} from '@/lib/sportivra/navigation'
+import {
   THEME_STORAGE_KEY,
   applyTheme,
   readCurrentTheme,
@@ -97,19 +105,6 @@ import {
   MediaViewerModal,
 } from '@/components/sportivra-modals'
 import { TwitchHub } from '@/components/twitch-hub'
-
-const navItems = [
-  { label: 'Home', href: '#top', id: 'top' },
-  { label: 'Live', href: '#live', id: 'live' },
-  { label: 'Sports', href: '#sports', id: 'sports' },
-  { label: 'My Teams', href: '#my-teams', id: 'my-teams' },
-  { label: 'Schedule', href: '#schedule', id: 'schedule' },
-  { label: 'Scores', href: '#scores', id: 'scores' },
-  { label: 'Highlights', href: '#highlights', id: 'highlights' },
-  { label: 'News', href: '#news', id: 'news' },
-  { label: 'Twitch Sports', href: '#twitch', id: 'twitch' },
-  { label: 'Membership', href: '#pricing', id: 'pricing' },
-] as const
 
 const sportSubtitles: Record<string, string> = {
   football: 'Matches, leagues & cups',
@@ -475,6 +470,14 @@ export function SportivraApp({
   >(null)
 
   const [mobileNav, setMobileNav] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const [moreMobileOpen, setMoreMobileOpen] = useState(false)
+  const [moreFocusIndex, setMoreFocusIndex] = useState(0)
+  const moreMenuRef = useRef<HTMLDivElement | null>(null)
+  const moreTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const moreItemRefs = useRef<Array<HTMLElement | null>>([])
+  const mobileNavRef = useRef<HTMLElement | null>(null)
+  const mobileNavTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchLoading, setSearchLoading] = useState(false)
@@ -862,18 +865,62 @@ export function SportivraApp({
     }
   }, [initialData.serverHydrated, showToast])
 
-  // Close search overlay & mobile navigation on Escape key
+  // Close search, navigation and menus on Escape key.
   useEffect(() => {
-    if (!searchOpen && !mobileNav) return
+    if (!searchOpen && !mobileNav && !moreOpen && !moreMobileOpen) return
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setSearchOpen(false)
-        setMobileNav(false)
+      if (e.key !== 'Escape') return
+      const shouldRestoreMoreFocus = moreOpen
+      setSearchOpen(false)
+      setMobileNav(false)
+      setMoreOpen(false)
+      setMoreMobileOpen(false)
+      if (shouldRestoreMoreFocus) {
+        window.requestAnimationFrame(() => moreTriggerRef.current?.focus())
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [mobileNav, searchOpen])
+  }, [mobileNav, moreMobileOpen, moreOpen, searchOpen])
+
+  // Close the desktop More menu when focus is moved outside it or the user taps elsewhere.
+  useEffect(() => {
+    if (!moreOpen) return
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (target instanceof Node && moreMenuRef.current?.contains(target)) return
+      setMoreOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [moreOpen])
+
+  // Close the mobile navigation when a tap lands outside the menu or its trigger.
+  useEffect(() => {
+    if (!mobileNav) return
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (
+        target instanceof Node &&
+        (mobileNavRef.current?.contains(target) ||
+          mobileNavTriggerRef.current?.contains(target))
+      ) {
+        return
+      }
+      setMobileNav(false)
+      setMoreMobileOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [mobileNav])
+
+  // Put keyboard focus on the first/last More item when its menu opens.
+  useEffect(() => {
+    if (!moreOpen) return
+    window.requestAnimationFrame(() => {
+      moreItemRefs.current[moreFocusIndex]?.focus()
+    })
+  }, [moreFocusIndex, moreOpen])
 
   // Keep desktop & mobile navigation highlight synced to scroll position
   useEffect(() => {
@@ -1454,21 +1501,73 @@ export function SportivraApp({
     [],
   )
 
-  const handleNavClick = (
-    e: React.MouseEvent<HTMLAnchorElement>,
-    item: (typeof navItems)[number],
+  const handleNavSelection = (
+    item: SportivraNavItem,
+    options: { restoreDesktopFocus?: boolean } = {},
   ) => {
-    if (item.id === 'scores') {
-      e.preventDefault()
+    if (item.action === 'match-center') {
       void handleOpenMatchCenter('finished')
-    } else if (item.id === 'pricing') {
-      e.preventDefault()
+    } else if (item.action === 'membership') {
       setActiveNavId('pricing')
       document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' })
+    } else if (item.action === 'reminders') {
+      setActiveNavId('reminders')
+      setAuthModalMode(user ? 'account' : 'signin')
+    } else if (item.action === 'help') {
+      setActiveNavId('help')
+      setInfoTopic('Help centre')
     } else {
       setActiveNavId(item.id)
     }
+
+    setSearchOpen(false)
     setMobileNav(false)
+    setMoreOpen(false)
+    setMoreMobileOpen(false)
+    if (options.restoreDesktopFocus) {
+      window.requestAnimationFrame(() => moreTriggerRef.current?.focus())
+    }
+  }
+
+  const handleNavClick = (
+    e: React.MouseEvent<HTMLAnchorElement>,
+    item: SportivraNavItem,
+    options?: { restoreDesktopFocus?: boolean },
+  ) => {
+    if (item.action) e.preventDefault()
+    handleNavSelection(item, options)
+  }
+
+  const handleMoreMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const currentIndex = moreItemRefs.current.findIndex(
+      (item) => item === document.activeElement,
+    )
+    const lastIndex = MORE_NAV_ITEMS.length - 1
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      const nextIndex = currentIndex < lastIndex ? currentIndex + 1 : 0
+      moreItemRefs.current[nextIndex]?.focus()
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      const nextIndex = currentIndex > 0 ? currentIndex - 1 : lastIndex
+      moreItemRefs.current[nextIndex]?.focus()
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      moreItemRefs.current[0]?.focus()
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      moreItemRefs.current[lastIndex]?.focus()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      setMoreOpen(false)
+      moreTriggerRef.current?.focus()
+    } else if (e.key === ' ') {
+      e.preventDefault()
+      moreItemRefs.current[currentIndex]?.click()
+    } else if (e.key === 'Tab') {
+      setMoreOpen(false)
+    }
   }
 
   return (
@@ -1481,16 +1580,17 @@ export function SportivraApp({
           <Brand />
 
           <nav
-            className="hidden items-center gap-4 xl:gap-6 lg:flex"
+            className="hidden items-center gap-3 lg:flex xl:gap-5"
             aria-label="Primary navigation"
           >
-            {navItems.map((item) => {
+            {PRIMARY_NAV_ITEMS.map((item) => {
               const isActive = activeNavId === item.id
               return (
                 <a
                   key={item.id}
                   href={item.href}
                   onClick={(e) => handleNavClick(e, item)}
+                  aria-current={isActive ? 'location' : undefined}
                   className={`inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] font-semibold transition hover:text-[#0f7a06] dark:hover:text-[#39ff14] ${
                     isActive
                       ? 'text-[#0f7a06] dark:text-[#39ff14]'
@@ -1504,14 +1604,142 @@ export function SportivraApp({
                       aria-hidden="true"
                     />
                   )}
-                  {item.id === 'my-teams' && favoriteTeams.length > 0 && (
-                    <span className="rounded-full bg-[#39ff14]/25 px-1.5 py-0.5 text-[10px] font-black text-[#0f7a06] dark:bg-[#39ff14]/20 dark:text-[#39ff14]">
-                      {favoriteTeams.length}
-                    </span>
-                  )}
                 </a>
               )
             })}
+
+            <div ref={moreMenuRef} className="relative">
+              <button
+                ref={moreTriggerRef}
+                type="button"
+                onClick={() => {
+                  if (moreOpen) {
+                    setMoreOpen(false)
+                  } else {
+                    setMoreFocusIndex(0)
+                    setMoreOpen(true)
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    setMoreFocusIndex(0)
+                    setMoreOpen(true)
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault()
+                    setMoreFocusIndex(MORE_NAV_ITEMS.length - 1)
+                    setMoreOpen(true)
+                  } else if (e.key === 'Escape') {
+                    setMoreOpen(false)
+                  }
+                }}
+                aria-haspopup="menu"
+                aria-controls="sportivra-more-menu"
+                aria-expanded={moreOpen}
+                className={`inline-flex min-h-10 items-center gap-1 whitespace-nowrap rounded-full px-3 text-[13px] font-semibold transition hover:bg-slate-100 hover:text-[#0f7a06] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0f7a06] dark:hover:bg-white/8 dark:hover:text-[#39ff14] dark:focus-visible:outline-[#39ff14] ${
+                  isMoreNavItemActive(activeNavId)
+                    ? 'bg-[#39ff14]/15 text-[#0f7a06] dark:bg-[#39ff14]/10 dark:text-[#39ff14]'
+                    : 'text-slate-600 dark:text-white/70'
+                }`}
+              >
+                More
+                <ChevronDown
+                  size={15}
+                  aria-hidden="true"
+                  className={`transition-transform ${moreOpen ? 'rotate-180' : ''}`}
+                />
+                {isMoreNavItemActive(activeNavId) && (
+                  <span
+                    className="h-1.5 w-1.5 rounded-full bg-[#0f7a06] dark:bg-[#39ff14]"
+                    aria-hidden="true"
+                  />
+                )}
+              </button>
+
+              {moreOpen && (
+                <div
+                  id="sportivra-more-menu"
+                  role="menu"
+                  aria-label="More SPORTIVRA navigation"
+                  onKeyDown={handleMoreMenuKeyDown}
+                  className="absolute right-0 top-[calc(100%+0.75rem)] z-50 min-w-56 rounded-2xl border border-slate-200 bg-white/98 p-2 shadow-2xl shadow-slate-900/10 backdrop-blur-xl dark:border-white/10 dark:bg-[#101b2d]/98 dark:shadow-black/30"
+                >
+                  {MORE_NAV_ITEMS.map((item, index) => {
+                    const isActive = activeNavId === item.id
+                    const itemClassName = `flex min-h-11 w-full items-center justify-between gap-4 rounded-xl px-3.5 text-left text-sm font-semibold transition focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#0f7a06] dark:focus-visible:outline-[#39ff14] ${
+                      isActive
+                        ? 'bg-[#39ff14]/15 text-[#0f7a06] dark:bg-[#39ff14]/10 dark:text-[#39ff14]'
+                        : 'text-slate-700 hover:bg-slate-100 hover:text-[#0f7a06] dark:text-white/80 dark:hover:bg-white/8 dark:hover:text-[#39ff14]'
+                    }`
+                    const itemBadge = item.id === 'my-teams' && favoriteTeams.length > 0
+                      ? `${favoriteTeams.length} following`
+                      : null
+                    const setItemRef = (node: HTMLElement | null) => {
+                      moreItemRefs.current[index] = node
+                    }
+
+                    if (item.action) {
+                      return (
+                        <button
+                          key={item.id}
+                          ref={setItemRef}
+                          type="button"
+                          role="menuitem"
+                          tabIndex={-1}
+                          onClick={() =>
+                            handleNavSelection(item, { restoreDesktopFocus: true })
+                          }
+                          className={itemClassName}
+                          aria-current={isActive ? 'location' : undefined}
+                        >
+                          <span>{item.label}</span>
+                          {itemBadge && (
+                            <span className="rounded-full bg-[#39ff14]/25 px-2 py-0.5 text-[10px] font-black text-[#0f7a06] dark:bg-[#39ff14]/20 dark:text-[#39ff14]">
+                              {itemBadge}
+                            </span>
+                          )}
+                        </button>
+                      )
+                    }
+
+                    return (
+                      <a
+                        key={item.id}
+                        ref={setItemRef}
+                        href={item.href}
+                        role="menuitem"
+                        tabIndex={-1}
+                        onClick={(e) =>
+                          handleNavClick(e, item, { restoreDesktopFocus: true })
+                        }
+                        className={itemClassName}
+                        aria-current={isActive ? 'location' : undefined}
+                      >
+                        <span>{item.label}</span>
+                        {itemBadge && (
+                          <span className="rounded-full bg-[#39ff14]/25 px-2 py-0.5 text-[10px] font-black text-[#0f7a06] dark:bg-[#39ff14]/20 dark:text-[#39ff14]">
+                            {itemBadge}
+                          </span>
+                        )}
+                      </a>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            <a
+              href={MEMBERSHIP_NAV_ITEM.href}
+              onClick={(e) => handleNavClick(e, MEMBERSHIP_NAV_ITEM)}
+              aria-current={activeNavId === MEMBERSHIP_NAV_ITEM.id ? 'location' : undefined}
+              className={`inline-flex min-h-10 items-center whitespace-nowrap rounded-full px-3 text-[13px] font-bold transition hover:bg-[#39ff14]/15 hover:text-[#0f7a06] dark:hover:bg-[#39ff14]/10 dark:hover:text-[#39ff14] ${
+                activeNavId === MEMBERSHIP_NAV_ITEM.id
+                  ? 'bg-[#39ff14]/15 text-[#0f7a06] dark:bg-[#39ff14]/10 dark:text-[#39ff14]'
+                  : 'text-slate-700 dark:text-white/80'
+              }`}
+            >
+              {MEMBERSHIP_NAV_ITEM.label}
+            </a>
           </nav>
 
           <div className="flex items-center gap-1.5 sm:gap-2">
@@ -1620,6 +1848,7 @@ export function SportivraApp({
               </>
             )}
             <button
+              ref={mobileNavTriggerRef}
               type="button"
               onClick={() => setMobileNav((prev) => !prev)}
               aria-expanded={mobileNav}
@@ -1858,16 +2087,18 @@ export function SportivraApp({
 
         {mobileNav && (
           <nav
+            ref={mobileNavRef}
             aria-label="Mobile navigation"
             className="border-t border-slate-200 bg-white px-5 py-4 lg:hidden dark:border-white/10 dark:bg-[#0b1220]"
           >
-            {navItems.map((item) => {
+            {PRIMARY_NAV_ITEMS.map((item) => {
               const isActive = activeNavId === item.id
               return (
                 <a
                   key={item.id}
                   href={item.href}
                   onClick={(e) => handleNavClick(e, item)}
+                  aria-current={isActive ? 'location' : undefined}
                   className={`flex min-h-11 items-center justify-between border-b border-slate-200 text-sm font-semibold last:border-0 dark:border-white/8 ${
                     isActive
                       ? 'text-[#0f7a06] dark:text-[#39ff14]'
@@ -1880,14 +2111,98 @@ export function SportivraApp({
                       {globalLiveMatches.length} Live
                     </span>
                   )}
-                  {item.id === 'my-teams' && favoriteTeams.length > 0 && (
-                    <span className="rounded-full bg-[#39ff14]/25 px-2 py-0.5 text-[10px] font-black text-[#0f7a06] dark:bg-[#39ff14]/20 dark:text-[#39ff14]">
-                      {favoriteTeams.length} following
-                    </span>
-                  )}
                 </a>
               )
             })}
+
+            <button
+              type="button"
+              onClick={() => setMoreMobileOpen((open) => !open)}
+              aria-expanded={moreMobileOpen}
+              aria-controls="sportivra-mobile-more-menu"
+              className={`flex min-h-11 w-full items-center justify-between border-b border-slate-200 text-sm font-semibold dark:border-white/8 ${
+                isMoreNavItemActive(activeNavId)
+                  ? 'text-[#0f7a06] dark:text-[#39ff14]'
+                  : 'text-slate-700 dark:text-white/80'
+              }`}
+            >
+              <span>More</span>
+              <ChevronDown
+                size={17}
+                aria-hidden="true"
+                className={`transition-transform ${moreMobileOpen ? 'rotate-180' : ''}`}
+              />
+            </button>
+
+            {moreMobileOpen && (
+              <div
+                id="sportivra-mobile-more-menu"
+                role="group"
+                aria-label="More SPORTIVRA navigation"
+                className="border-b border-slate-200 py-1 dark:border-white/8"
+              >
+                {MORE_NAV_ITEMS.map((item) => {
+                  const isActive = activeNavId === item.id
+                  const itemClassName = `flex min-h-11 w-full items-center justify-between rounded-xl px-3 text-sm font-semibold ${
+                    isActive
+                      ? 'bg-[#39ff14]/15 text-[#0f7a06] dark:bg-[#39ff14]/10 dark:text-[#39ff14]'
+                      : 'text-slate-700 dark:text-white/75'
+                  }`
+                  const itemBadge = item.id === 'my-teams' && favoriteTeams.length > 0
+                    ? `${favoriteTeams.length} following`
+                    : null
+
+                  if (item.action) {
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => handleNavSelection(item)}
+                        className={itemClassName}
+                        aria-current={isActive ? 'location' : undefined}
+                      >
+                        <span>{item.label}</span>
+                        {itemBadge && (
+                          <span className="rounded-full bg-[#39ff14]/25 px-2 py-0.5 text-[10px] font-black text-[#0f7a06] dark:bg-[#39ff14]/20 dark:text-[#39ff14]">
+                            {itemBadge}
+                          </span>
+                        )}
+                      </button>
+                    )
+                  }
+
+                  return (
+                    <a
+                      key={item.id}
+                      href={item.href}
+                      onClick={(e) => handleNavClick(e, item)}
+                      className={itemClassName}
+                      aria-current={isActive ? 'location' : undefined}
+                    >
+                      <span>{item.label}</span>
+                      {itemBadge && (
+                        <span className="rounded-full bg-[#39ff14]/25 px-2 py-0.5 text-[10px] font-black text-[#0f7a06] dark:bg-[#39ff14]/20 dark:text-[#39ff14]">
+                          {itemBadge}
+                        </span>
+                      )}
+                    </a>
+                  )
+                })}
+              </div>
+            )}
+
+            <a
+              href={MEMBERSHIP_NAV_ITEM.href}
+              onClick={(e) => handleNavClick(e, MEMBERSHIP_NAV_ITEM)}
+              aria-current={activeNavId === MEMBERSHIP_NAV_ITEM.id ? 'location' : undefined}
+              className={`flex min-h-11 items-center justify-between border-b border-slate-200 text-sm font-bold dark:border-white/8 ${
+                activeNavId === MEMBERSHIP_NAV_ITEM.id
+                  ? 'text-[#0f7a06] dark:text-[#39ff14]'
+                  : 'text-slate-700 dark:text-white/80'
+              }`}
+            >
+              <span>{MEMBERSHIP_NAV_ITEM.label}</span>
+            </a>
 
             <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3 dark:border-white/10">
               <button
