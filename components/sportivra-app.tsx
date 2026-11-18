@@ -476,6 +476,8 @@ export function SportivraApp({
   const moreMenuRef = useRef<HTMLDivElement | null>(null)
   const moreTriggerRef = useRef<HTMLButtonElement | null>(null)
   const moreItemRefs = useRef<Array<HTMLElement | null>>([])
+  const mobileNavRef = useRef<HTMLElement | null>(null)
+  const mobileNavTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchLoading, setSearchLoading] = useState(false)
@@ -892,6 +894,25 @@ export function SportivraApp({
     document.addEventListener('pointerdown', onPointerDown)
     return () => document.removeEventListener('pointerdown', onPointerDown)
   }, [moreOpen])
+
+  // Close the mobile navigation when a tap lands outside the menu or its trigger.
+  useEffect(() => {
+    if (!mobileNav) return
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (
+        target instanceof Node &&
+        (mobileNavRef.current?.contains(target) ||
+          mobileNavTriggerRef.current?.contains(target))
+      ) {
+        return
+      }
+      setMobileNav(false)
+      setMoreMobileOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [mobileNav])
 
   // Put keyboard focus on the first/last More item when its menu opens.
   useEffect(() => {
@@ -1816,6 +1837,7 @@ export function SportivraApp({
               </>
             )}
             <button
+              ref={mobileNavTriggerRef}
               type="button"
               onClick={() => setMobileNav((prev) => !prev)}
               aria-expanded={mobileNav}
@@ -2054,6 +2076,7 @@ export function SportivraApp({
 
         {mobileNav && (
           <nav
+            ref={mobileNavRef}
             aria-label="Mobile navigation"
             className="border-t border-slate-200 bg-white px-5 py-4 lg:hidden dark:border-white/10 dark:bg-[#0b1220]"
           >
